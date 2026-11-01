@@ -1,0 +1,12 @@
+_commit: v0.1.0
+_src_path: /home/dk/code/Quantilica/fetcher-template
+author_email: daniel@dkko.me
+author_name: Komesu, D.K.
+description: Coletor e conversor Lake Hive de séries econômicas, sociais e regionais do Ipeadata
+domain: macro
+has_lake: true
+package_name: ipeadata-fetcher
+package_slug: ipeadata_fetcher
+protocol: odata
+source_id: ipeadata
+source_name: Instituto de Pesquisa Econômica Aplicada (Ipeadata)
