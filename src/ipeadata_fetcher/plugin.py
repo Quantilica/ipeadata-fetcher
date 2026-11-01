@@ -10,6 +10,7 @@ from quantilica.cli.sdk import FetcherApp, make_resolve_groups
 
 from .catalog import GROUP_ALIASES, GROUPS, list_datasets
 from .client import IpeadataClient
+from .constants import valores_serie_url
 from .storage import DataRepository
 
 resolve_groups = make_resolve_groups(
@@ -58,29 +59,39 @@ fetcher.command_pipeline(convert)
 
 
 # Register backfill subcommand (P5)
-def _get_backfill_units() -> list[str]:
+def _get_backfill_units(*, regional: bool = False) -> list[str]:
     """Return units for backfill: list of series codes."""
+    if regional:
+        return [e["id"] for e in list_datasets("regional")]
     return [e["id"] for e in list_datasets()]
 
 
-def _run_backfill_unit(unit: str) -> None:
-    """Download single series JSON."""
+def _run_backfill_unit(unit: str, output_dir: Path | None = None) -> None:
+    """Download single series JSON with manifest."""
     client = IpeadataClient()
-    out_dir = Path("/data/ipeadata/series")
+    base_dir = output_dir or Path("/data/ipeadata")
+    out_dir = base_dir / "series"
     out_dir.mkdir(parents=True, exist_ok=True)
     today = dt.date.today().strftime("%Y%m%d")
     out_file = out_dir / f"{unit}@{today}.json"
     if not out_file.exists():
-        data = client.get_valores_serie(unit)
-        import json
+        url = valores_serie_url(unit)
+        client.download_resource(url, out_file)
 
-        with open(out_file, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False)
+
+def _run_backfill_wrapper(unit: str, output_dir: Path | None = None) -> None:
+    import inspect
+
+    sig = inspect.signature(_run_backfill_unit)
+    if len(sig.parameters) >= 2:
+        _run_backfill_unit(unit, output_dir)
+    else:
+        _run_backfill_unit(unit)
 
 
 fetcher.command_backfill(
     lambda: _get_backfill_units(),
-    lambda u: _run_backfill_unit(u),
+    _run_backfill_wrapper,
     name="backfill",
     help="Carga histórica exaustiva de séries do Ipeadata (JSON)",
 )
