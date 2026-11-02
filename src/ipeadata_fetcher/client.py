@@ -33,7 +33,9 @@ class IpeadataClient:
         logger: logging.Logger | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
-        self.client = client or HttpClient()
+        self.client = client or HttpClient(
+            follow_redirects=False, http2=False, emulate_browser=True
+        )
         self.logger = logger or get_logger(__name__)
 
     def _get_odata_values(self, url: str) -> list[dict[str, Any]]:
@@ -74,8 +76,11 @@ class IpeadataClient:
         manifest_path: Path | None = None,
     ) -> DownloadManifest:
         """Download raw JSON endpoint with SHA-256 manifest."""
+        # manifest_path is accepted for compatibility but not used by HttpClient
         return self.client.download_with_manifest(
             url,
             dest,
-            manifest_path=manifest_path,
+            source_id="ipeadata",
+            dataset_id="series",
+            producer="ipeadata-fetcher",
         )

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import datetime as dt
+import os
 from pathlib import Path
 from typing import Any
 
+import typer
 from quantilica.cli.sdk import FetcherApp, make_resolve_groups
 
 from .catalog import GROUP_ALIASES, GROUPS, list_datasets
@@ -58,42 +60,100 @@ fetcher.command_convert(convert)
 fetcher.command_pipeline(convert)
 
 
-# Register backfill subcommand (P5)
-def _get_backfill_units(*, regional: bool = False) -> list[str]:
-    """Return units for backfill: list of series codes."""
-    if regional:
-        return [e["id"] for e in list_datasets("regional")]
-    return [e["id"] for e in list_datasets()]
+# Backfill command with filtering options
+_backfill_options = {
+    "regional": typer.Option(False, "--regional", help="Apenas séries regionais"),
+    "base": typer.Option(None, "--base", help="Filtrar por base"),
+    "theme": typer.Option(None, "--theme", help="Filtrar por tema (TEMCODIGO)"),
+    "source": typer.Option(None, "--source", help="Filtrar por fonte"),
+    "all_bases": typer.Option(False, "--all", help="Todas as bases"),
+}
 
 
-def _run_backfill_unit(unit: str, output_dir: Path | None = None) -> None:
-    """Download single series JSON with manifest."""
-    client = IpeadataClient()
-    base_dir = output_dir or Path("/data/ipeadata")
-    out_dir = base_dir / "series"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    today = dt.date.today().strftime("%Y%m%d")
-    out_file = out_dir / f"{unit}@{today}.json"
-    if not out_file.exists():
-        url = valores_serie_url(unit)
-        client.download_resource(url, out_file)
-
-
-def _run_backfill_wrapper(unit: str, output_dir: Path | None = None) -> None:
-    import inspect
-
-    sig = inspect.signature(_run_backfill_unit)
-    if len(sig.parameters) >= 2:
-        _run_backfill_unit(unit, output_dir)
-    else:
-        _run_backfill_unit(unit)
-
-
-fetcher.command_backfill(
-    lambda: _get_backfill_units(),
-    _run_backfill_wrapper,
+@fetcher.app.command(
     name="backfill",
     help="Carga histórica exaustiva de séries do Ipeadata (JSON)",
 )
+def _backfill_command(
+    regional: bool = _backfill_options["regional"],
+    base: str | None = _backfill_options["base"],
+    theme: int | None = _backfill_options["theme"],
+    source: str | None = _backfill_options["source"],
+    all_bases: bool = _backfill_options["all_bases"],
+    output: Path | None = typer.Option(None, "--output", "-o"),  # noqa: B008
+    resume: bool = typer.Option(True, "--resume/--restart"),  # noqa: B008
+    verbose: bool = typer.Option(False, "--verbose"),  # noqa: B008
+) -> None:
+    """Carga histórica exaustiva de séries do Ipeadata (JSON)."""
+    from ipeadata_fetcher.catalog import _fetch_all_series, _series_to_entries
+
+    all_series = _fetch_all_series()
+
+    # Mapping from user-friendly base names to BASNOME values
+    BASE_MAP = {
+        "macro": "Macroeconômico",
+        "social": "Social",
+        "regional": "Regional",
+    }
+
+    if regional:
+        all_series = [
+            s for s in all_series if (s.get("BASNOME") or "").lower() == "regional"
+        ]
+    elif base:
+        target_base = BASE_MAP.get(base.lower(), base)
+        all_series = [
+            s
+            for s in all_series
+            if (s.get("BASNOME") or "").lower() == target_base.lower()
+        ]
+
+    # Filter by theme and source (explicit filters)
+    if theme is not None:
+        all_series = [s for s in all_series if s.get("TEMCODIGO") == theme]
+    if source:
+        all_series = [s for s in all_series if s.get("FONTE") == source]
+
+    # Default: only core series when no explicit filters
+    if not (regional or base or theme is not None or source or all_bases):
+        from ipeadata_fetcher.catalog import (
+            CORE_MACRO_SERIES,
+            CORE_REGIONAL_SERIES,
+            CORE_SOCIAL_SERIES,
+        )
+        core_codes = {
+            c[0]
+            for c in CORE_MACRO_SERIES + CORE_SOCIAL_SERIES + CORE_REGIONAL_SERIES
+        }
+        all_series = [s for s in all_series if s.get("SERCODIGO") in core_codes]
+
+    units = [e["id"] for e in _series_to_entries(all_series)]
+
+    if not units:
+        print("Nenhuma série corresponde aos filtros.")
+        raise typer.Exit(0)
+
+    print(f"Baixando {len(units)} séries...")
+    client = IpeadataClient()  # noqa: E501
+    base_dir = output or (
+        Path(os.environ.get("DATA_DIR", "~/data")).expanduser() / "ipeadata"
+    )
+    out_dir = base_dir / "series"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    today = dt.date.today().strftime("%Y%m%d")
+
+    for i, unit in enumerate(units, 1):
+        out_file = out_dir / f"{unit}@{today}.json"
+        if resume and out_file.exists():
+            if verbose:
+                print(f"[{i}/{len(units)}] {unit} - pulando (já existe)")
+            continue
+        if verbose:
+            print(f"[{i}/{len(units)}] {unit} - baixando...")
+        url = valores_serie_url(unit)
+        client.download_resource(url, out_file)
+
+    print(f"Concluído: {len(units)} série(s).")
+
 
 app = fetcher.app

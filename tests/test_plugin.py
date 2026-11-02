@@ -2,6 +2,7 @@
 
 from typer.testing import CliRunner
 
+from ipeadata_fetcher import catalog
 from ipeadata_fetcher.plugin import app
 
 
@@ -22,20 +23,45 @@ def test_cli_convert_help() -> None:
     assert "--lake" in result.output
 
 
-def test_cli_backfill(tmp_path, monkeypatch) -> None:
-    """Test quantilica ipeadata backfill."""
+def test_cli_backfill_filters(monkeypatch, tmp_path) -> None:
+    """Test backfill command with filter options."""
     runner = CliRunner()
     executed = []
 
-    monkeypatch.setattr(
-        "ipeadata_fetcher.plugin._get_backfill_units",
-        lambda: ["PRECOS_IPCAG", "BM12_TJOVER12"],
-    )
-    monkeypatch.setattr(
-        "ipeadata_fetcher.plugin._run_backfill_unit",
-        lambda unit: executed.append(unit),
-    )
+    # Mock the catalog to return a fixed list
+    def fake_fetch_all():
+        return [
+            {"SERCODIGO": "SERIE_A", "SERNOME": "Serie A", "BASNOME": "Macroeconômico", "TEMCODIGO": 1, "FONTE": "Fonte1"},
+            {"SERCODIGO": "SERIE_B", "SERNOME": "Serie B", "BASNOME": "Social", "TEMCODIGO": 2, "FONTE": "Fonte2"},
+            {"SERCODIGO": "SERIE_C", "SERNOME": "Serie C", "BASNOME": "Regional", "TEMCODIGO": 1, "FONTE": "Fonte1"},
+        ]
 
-    result = runner.invoke(app, ["backfill", "-o", str(tmp_path)])
+    monkeypatch.setattr(catalog, "_fetch_all_series", fake_fetch_all)
+
+    # Mock download to track calls
+    from ipeadata_fetcher.client import IpeadataClient
+    orig_download = IpeadataClient.download_resource
+
+    def mock_download(self, url, dest, *, manifest_path=None):
+        executed.append(url)
+
+    monkeypatch.setattr(IpeadataClient, "download_resource", mock_download)
+
+    # Test with --base macro
+    executed.clear()
+    result = runner.invoke(app, ["backfill", "--base", "macro", "-o", str(tmp_path)])
     assert result.exit_code == 0
-    assert executed == ["PRECOS_IPCAG", "BM12_TJOVER12"]
+    assert len(executed) == 1
+    assert "SERIE_A" in executed[0]
+
+    # Test with --theme 1
+    executed.clear()
+    result = runner.invoke(app, ["backfill", "--theme", "1", "-o", str(tmp_path)])
+    assert result.exit_code == 0
+    assert len(executed) == 2  # SERIE_A and SERIE_C
+
+    # Test with --all
+    executed.clear()
+    result = runner.invoke(app, ["backfill", "--all", "-o", str(tmp_path)])
+    assert result.exit_code == 0
+    assert len(executed) == 3
