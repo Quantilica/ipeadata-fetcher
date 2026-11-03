@@ -9,6 +9,7 @@ from typing import Any
 
 import typer
 from quantilica.cli.sdk import FetcherApp, make_resolve_groups
+from quantilica.core.sync import FreshnessPolicy
 
 from .catalog import GROUP_ALIASES, GROUPS, list_datasets
 from .client import IpeadataClient
@@ -35,6 +36,7 @@ fetcher = FetcherApp(
     list_datasets=list_datasets,
     path_builder=path_builder,
     default_output=Path("/data/ipeadata"),
+    freshness_policy=FreshnessPolicy.REMOTE_ONLY,
 )
 
 
