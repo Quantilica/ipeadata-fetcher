@@ -16,9 +16,12 @@ from .client import IpeadataClient
 from .constants import valores_serie_url
 from .storage import DataRepository
 
-resolve_groups = make_resolve_groups(
-    GROUPS, {alias: [canon] for alias, canon in GROUP_ALIASES.items()}
-)
+# O SDK espera ``alias -> lista de grupos``; passar a string crua faria ``list("all")``
+# virar ['a', 'l', 'l'] ("Grupo desconhecido: 'a'").
+ALIASES: dict[str, list[str]] = {
+    alias: [canon] for alias, canon in GROUP_ALIASES.items()
+}
+resolve_groups = make_resolve_groups(GROUPS, ALIASES)
 
 
 def path_builder(
@@ -32,7 +35,7 @@ fetcher = FetcherApp(
     name="ipeadata",
     help="Séries econômicas, sociais e regionais do Ipeadata",
     groups_dict=GROUPS,
-    aliases_dict=GROUP_ALIASES,
+    aliases_dict=ALIASES,
     list_datasets=list_datasets,
     path_builder=path_builder,
     default_output=Path("/data/ipeadata"),
@@ -114,7 +117,9 @@ def _backfill_command(
     if theme is not None:
         all_series = [s for s in all_series if s.get("TEMCODIGO") == theme]
     if source:
-        all_series = [s for s in all_series if s.get("FONTE") == source]
+        all_series = [
+            s for s in all_series if (s.get("FNTSIGLA") or s.get("FONTE")) == source
+        ]
 
     # Default: only core series when no explicit filters
     if not (regional or base or theme is not None or source or all_bases):
@@ -123,9 +128,9 @@ def _backfill_command(
             CORE_REGIONAL_SERIES,
             CORE_SOCIAL_SERIES,
         )
+
         core_codes = {
-            c[0]
-            for c in CORE_MACRO_SERIES + CORE_SOCIAL_SERIES + CORE_REGIONAL_SERIES
+            c[0] for c in CORE_MACRO_SERIES + CORE_SOCIAL_SERIES + CORE_REGIONAL_SERIES
         }
         all_series = [s for s in all_series if s.get("SERCODIGO") in core_codes]
 

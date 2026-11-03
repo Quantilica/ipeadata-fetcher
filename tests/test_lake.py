@@ -51,7 +51,13 @@ def test_convert_ipeadata_end_to_end(tmp_path: Path) -> None:
                 "SERNOME": "IPCA Geral",
                 "BASNOME": "Macroeconômico",
                 "PERNOME": "Mensal",
-            }
+            },
+            {
+                "SERCODIGO": "DFEDUCM",
+                "SERNOME": "Despesa com Educação",
+                "BASNOME": "Regional",
+                "PERNOME": "Mensal",
+            },
         ]
     }
     meta_file = dim_dir / "metadados@20261101.json"
@@ -134,3 +140,96 @@ def test_convert_ipeadata_end_to_end(tmp_path: Path) -> None:
     assert df_r["data"][0] == "2024-01-01"
     assert df_r["valor"][0] == 1500000.0
     assert df_r["tercodigo"][0] == "3550308"
+
+
+# --- Regressão D4: periodicidade/nivel vêm dos metadados/linhas, não fixos -----
+META = {
+    "value": [
+        {"SERCODIGO": "PRECOS_IPCAG", "BASNOME": "Macroeconômico", "PERNOME": "Mensal"},
+        {"SERCODIGO": "PIB_ANUAL", "BASNOME": "Macroeconômico", "PERNOME": "Anual"},
+        {"SERCODIGO": "ADH_IDHM", "BASNOME": "Social", "PERNOME": "Decenal"},
+        {"SERCODIGO": "DIARIA_X", "BASNOME": "Macroeconômico", "PERNOME": "Diária"},
+    ]
+}
+
+
+def _write(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _row(code: str, date: str, value: float, niv: str = "", ter: str = "") -> dict:
+    return {
+        "SERCODIGO": code,
+        "VALDATA": f"{date}T00:00:00-03:00",
+        "VALVALOR": value,
+        "NIVNOME": niv,
+        "TERCODIGO": ter,
+    }
+
+
+def test_periodicidade_comes_from_metadata(tmp_path: Path) -> None:
+    raw = tmp_path / "raw"
+    _write(raw / "dimensoes" / "metadados@20261101.json", META)
+    _write(
+        raw / "macro" / "PIB_ANUAL@20261101.json",
+        {"value": [_row("PIB_ANUAL", "2020-01-01", 1.0)]},
+    )
+    _write(
+        raw / "macro" / "DIARIA_X@20261101.json",
+        {"value": [_row("DIARIA_X", "2020-01-02", 2.0)]},
+    )
+    res = converter.convert(raw, tmp_path / "lake")
+    assert not res.errors
+    ds = tmp_path / "lake" / "ipeadata" / "valores"
+    assert not check_dataset(ds)
+    assert (ds / "base=macro" / "periodicidade=anual").is_dir()
+    assert (ds / "base=macro" / "periodicidade=diaria").is_dir()
+    assert not (ds / "base=macro" / "periodicidade=mensal").exists()
+
+
+def test_regional_nivel_is_per_row_and_periodicidade_real(tmp_path: Path) -> None:
+    """ADH_IDHM real mistura Municípios/Estados/Brasil e é decenal."""
+    raw = tmp_path / "raw"
+    _write(raw / "dimensoes" / "metadados@20261101.json", META)
+    _write(
+        raw / "social" / "ADH_IDHM@20261101.json",
+        {
+            "value": [
+                _row("ADH_IDHM", "1991-01-01", 0.5, "Municípios", "4118402"),
+                _row("ADH_IDHM", "1991-01-01", 0.6, "Municípios", "3550308"),
+                _row("ADH_IDHM", "1991-01-01", 0.55, "Estados", "41"),
+                _row("ADH_IDHM", "1991-01-01", 0.53, "AMC 91-00", "99"),
+            ]
+        },
+    )
+    res = converter.convert(raw, tmp_path / "lake")
+    assert not res.errors, res.errors
+    ds = tmp_path / "lake" / "ipeadata" / "valores_regional"
+    assert not check_dataset(ds)
+    parts = sorted(p.name for p in ds.glob("nivel=*"))
+    assert parts == ["nivel=AMC_91-00", "nivel=Estados", "nivel=Municipios"]
+    for p in ds.glob("nivel=*"):
+        assert (p / "periodicidade=decenal").is_dir()
+    mun = pl.read_parquet(
+        next((ds / "nivel=Municipios" / "periodicidade=decenal").glob("*.parquet"))
+    )
+    assert mun.height == 2
+
+
+def test_series_without_metadata_goes_to_quarantine_not_mensal(
+    tmp_path: Path, caplog
+) -> None:
+    raw = tmp_path / "raw"
+    _write(
+        raw / "macro" / "SEM_META@20261101.json",
+        {"value": [_row("SEM_META", "2020-01-01", 1.0)]},
+    )
+    with caplog.at_level("WARNING"):
+        res = converter.convert(raw, tmp_path / "lake")
+    assert not res.errors, res.errors
+    ds = tmp_path / "lake" / "ipeadata" / "valores" / "base=macro"
+    assert [p.name for p in ds.iterdir()] == [
+        "periodicidade=__HIVE_DEFAULT_PARTITION__"
+    ]
+    assert "sem periodicidade nos metadados" in caplog.text

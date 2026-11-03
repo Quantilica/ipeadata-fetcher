@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import unicodedata
 from collections.abc import Sequence
@@ -23,6 +24,8 @@ except ImportError as exc:
         "uv add 'ipeadata-fetcher[analysis]' "
         "--index https://index.quantilica.com/simple/"
     ) from exc
+
+logger = logging.getLogger(__name__)
 
 SOURCE_ID = "ipeadata"
 DATASETS = ["series", "temas", "territorios", "paises", "valores", "valores_regional"]
@@ -45,6 +48,33 @@ def _read_json_items(file_path: Path) -> list[dict[str, Any]]:
     elif isinstance(data, list):
         return data
     return []
+
+
+def _partition_value(value: Any, *, lower: bool = False) -> str | None:
+    """Valor de partição seguro (sem acento/espaço/barra); ``None`` se vazio.
+
+    ``None`` vira ``__HIVE_DEFAULT_PARTITION__`` (quarentena) no lake.
+    """
+    if value is None:
+        return None
+    text = unicodedata.normalize("NFKD", str(value))
+    text = text.encode("ascii", "ignore").decode("ascii").strip()
+    text = re.sub(r"[^A-Za-z0-9\-]+", "_", text).strip("_")
+    if not text:
+        return None
+    return text.lower() if lower else text
+
+
+def _periodicidades(meta_items: list[dict[str, Any]]) -> dict[str, str | None]:
+    """``SERCODIGO -> periodicidade`` (``PERNOME`` do OData) normalizada."""
+    result: dict[str, str | None] = {}
+    for item in meta_items:
+        code = item.get("SERCODIGO")
+        if code:
+            result[str(code)] = _partition_value(
+                item.get("PERNOME") or item.get("SERPERIODICIDADE"), lower=True
+            )
+    return result
 
 
 class IpeadataLakeConverter:
@@ -118,6 +148,12 @@ class IpeadataLakeConverter:
         all_raw_files = [f for f in input_path.rglob("*.json") if f.is_file()]
         active_files = select_current(all_raw_files)
 
+        # Periodicidade real de cada serie, do arquivo de metadados (PERNOME).
+        periodicidades: dict[str, str | None] = {}
+        for raw_file in active_files:
+            if raw_file.stem.split("@")[0].lower() in ("metadados", "series"):
+                periodicidades.update(_periodicidades(_read_json_items(raw_file)))
+
         # First convert dimensions
         for raw_file in active_files:
             stem = raw_file.stem.split("@")[0].lower()
@@ -183,29 +219,61 @@ class IpeadataLakeConverter:
 
                 # Determine whether regional or macro/social:
                 parent_group = raw_file.parent.name.lower()
-                is_regional = parent_group == "regional" or any(
-                    v is not None and v != "" for v in df["nivnome"].to_list()[:5]
-                )
+                has_nivel = df.select(
+                    pl.col("nivnome").cast(pl.Utf8).is_not_null().any()
+                ).item()
+                is_regional = parent_group == "regional" or bool(has_nivel)
+
+                # Periodicidade vem dos metadados da serie, nunca fixa.
+                sercodigo = raw_file.stem.split("@")[0]
+                if "sercodigo" in df.columns:
+                    codes = df["sercodigo"].drop_nulls().unique().to_list()
+                    if len(codes) == 1:
+                        sercodigo = str(codes[0])
+                periodicidade = periodicidades.get(sercodigo)
+                if periodicidade is None:
+                    logger.warning(
+                        "Ipeadata %s: sem periodicidade nos metadados; particao de "
+                        "quarentena periodicidade=__HIVE_DEFAULT_PARTITION__",
+                        raw_file.name,
+                    )
 
                 if is_regional and "valores_regional" in writers:
-                    nivel = "Municipios" if parent_group == "regional" else "Regional"
-                    periodicidade = "mensal"
+                    # Nivel territorial real por linha (um arquivo mistura
+                    # Municipios, AMC..., Estados, Brasil).
                     df = df.with_columns(
-                        pl.lit(nivel).alias("nivel"),
-                        pl.lit(periodicidade).alias("periodicidade"),
+                        pl.col("nivnome")
+                        .cast(pl.Utf8)
+                        .map_elements(_partition_value, return_dtype=pl.Utf8)
+                        .alias("nivel"),
+                        pl.lit(periodicidade, dtype=pl.Utf8).alias("periodicidade"),
                     )
-                    writers["valores_regional"].write_polars(
-                        df,
-                        src=raw_file,
-                        partitions={"nivel": nivel, "periodicidade": periodicidade},
-                    )
-                    res.converted += 1
+                    for nivel in sorted(
+                        df["nivel"].unique().to_list(), key=lambda v: (v is None, v)
+                    ):
+                        part = df.filter(
+                            pl.col("nivel").is_null()
+                            if nivel is None
+                            else pl.col("nivel") == nivel
+                        )
+                        if nivel is None:
+                            logger.warning(
+                                "Ipeadata %s: %d linha(s) sem NIVNOME na particao "
+                                "de quarentena nivel=__HIVE_DEFAULT_PARTITION__",
+                                raw_file.name,
+                                part.height,
+                            )
+                        writers["valores_regional"].write_polars(
+                            part,
+                            src=raw_file,
+                            partitions={"nivel": nivel, "periodicidade": periodicidade},
+                        )
+                        res.converted += 1
                 elif not is_regional and "valores" in writers:
                     base = "social" if parent_group == "social" else "macro"
-                    periodicidade = "mensal"
                     df = df.with_columns(
                         pl.lit(base).alias("base"),
-                        pl.lit(periodicidade).alias("periodicidade"),
+                        pl.lit(periodicidade, dtype=pl.Utf8).alias("periodicidade"),
                     )
                     writers["valores"].write_polars(
                         df,

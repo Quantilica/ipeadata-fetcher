@@ -5,6 +5,27 @@ Todas as alterações notáveis neste projeto serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/),
 e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [Não lançado]
+
+### Corrigido
+- `sync todas --dry-run` estourava `ValueError: Grupo desconhecido: 'a'` e
+  `sync macro_all` dava "Grupo desconhecido": o `FetcherApp` recebia
+  `alias -> str` (o SDK faz `list("all")` -> `['a','l','l']`) e os grupos
+  dinâmicos (`all`, `macro_all`, `social_all`, `regional_all`) não eram aliases
+  válidos. Também `macro_all` vinha vazio (`"macroeconômico" != "macro"`).
+- Catálogo: grupo canônico a partir de `BASNOME` (`Macroeconômico` -> `macro`) e
+  campos reais do OData (`PERNOME`, `FNTSIGLA`, `UNINOME`) para periodicidade,
+  fonte e unidade (os nomes antigos nunca existiram no payload).
+- `lake`: `periodicidade` vem do `PERNOME` do metadado da série (antes
+  `"mensal"` fixo) e `nivel` do `NIVNOME` de cada linha (antes `"Municipios"`
+  fixo; uma série mistura Municípios, AMC, Estados e Brasil e agora gera uma
+  partição por nível). Sem metadado/nível o dado vai para
+  `__HIVE_DEFAULT_PARTITION__` com aviso. O roteamento regional olha o arquivo
+  todo, não só as 5 primeiras linhas. Reconverter o lake para corrigir as
+  partições antigas.
+- Testes de rede ficam atrás de `@pytest.mark.network` (fora do `pytest -q`);
+  `test_list_datasets_by_group` não acessa mais o OData (levava ~60 s).
+
 ## [0.1.0] - 2026-11-01
 
 ### Adicionado

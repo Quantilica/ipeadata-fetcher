@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import unicodedata
 from typing import Any
 
 from ._catalog_base import DatasetEntry, GroupInfo, static_dataset
@@ -134,6 +135,13 @@ def _fetch_all_series() -> list[dict[str, Any]]:
     return _ALL_SERIES_CACHE
 
 
+def _base_group(basnome: str | None) -> str:
+    """``BASNOME`` do OData ("Macroeconômico") -> grupo canônico (``macro``)."""
+    folded = unicodedata.normalize("NFKD", basnome or "macro")
+    folded = folded.encode("ascii", "ignore").decode("ascii").strip().lower()
+    return "macro" if folded.startswith("macro") else folded
+
+
 def _series_to_entries(series_list: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Convert raw series metadata to catalog entries."""
     return [
@@ -143,12 +151,12 @@ def _series_to_entries(series_list: list[dict[str, Any]]) -> list[dict[str, Any]
             "name": s["SERNOME"],
             "url": valores_serie_url(s["SERCODIGO"]),
             "ext": "json",
-            "group": (s.get("BASNOME") or "macro").lower(),
+            "group": _base_group(s.get("BASNOME")),
             "slug": s["SERCODIGO"],
             "tema": s.get("TEMCODIGO"),
-            "fonte": s.get("FONTE"),
-            "unidade": s.get("SERUNIDADE"),
-            "periodicidade": s.get("SERPERIODICIDADE"),
+            "fonte": s.get("FNTSIGLA") or s.get("FONTE"),
+            "unidade": s.get("UNINOME") or s.get("SERUNIDADE"),
+            "periodicidade": s.get("PERNOME") or s.get("SERPERIODICIDADE"),
         }
         for s in series_list
         if "SERCODIGO" in s
@@ -163,11 +171,10 @@ def list_all_series() -> list[dict[str, Any]]:
 def list_series_by_base(base: str) -> list[dict[str, Any]]:
     """Filter series by base name (macro, social, regional)."""
     all_series = _fetch_all_series()
-    base_lower = base.lower()
-    filtered = [
-        s for s in all_series
-        if (s.get("BASNOME") or "").lower() == base_lower
-    ]
+    # BASNOME real é "Macroeconômico"/"Social"/"Regional"; comparar pelo grupo
+    # canônico (antes "macroeconômico" != "macro" e macro_all vinha vazio).
+    wanted = _base_group(base)
+    filtered = [s for s in all_series if _base_group(s.get("BASNOME")) == wanted]
     return _series_to_entries(filtered)
 
 
@@ -182,6 +189,12 @@ GROUP_ALIASES: dict[str, str] = {
     "regioes": "regional",
     "metadados": "dimensoes",
     "todas": "all",  # especial: todas as séries
+    # Grupos dinâmicos (todas as séries de uma base): não estão em GROUPS porque
+    # exigem consulta ao OData; entram como alias para valer em `sync`/`list`.
+    "all": "all",
+    "macro_all": "macro_all",
+    "social_all": "social_all",
+    "regional_all": "regional_all",
 }
 
 
