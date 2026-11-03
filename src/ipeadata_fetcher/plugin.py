@@ -123,9 +123,9 @@ def _backfill_command(
             CORE_REGIONAL_SERIES,
             CORE_SOCIAL_SERIES,
         )
+
         core_codes = {
-            c[0]
-            for c in CORE_MACRO_SERIES + CORE_SOCIAL_SERIES + CORE_REGIONAL_SERIES
+            c[0] for c in CORE_MACRO_SERIES + CORE_SOCIAL_SERIES + CORE_REGIONAL_SERIES
         }
         all_series = [s for s in all_series if s.get("SERCODIGO") in core_codes]
 

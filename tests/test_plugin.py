@@ -31,16 +31,33 @@ def test_cli_backfill_filters(monkeypatch, tmp_path) -> None:
     # Mock the catalog to return a fixed list
     def fake_fetch_all():
         return [
-            {"SERCODIGO": "SERIE_A", "SERNOME": "Serie A", "BASNOME": "Macroeconômico", "TEMCODIGO": 1, "FONTE": "Fonte1"},
-            {"SERCODIGO": "SERIE_B", "SERNOME": "Serie B", "BASNOME": "Social", "TEMCODIGO": 2, "FONTE": "Fonte2"},
-            {"SERCODIGO": "SERIE_C", "SERNOME": "Serie C", "BASNOME": "Regional", "TEMCODIGO": 1, "FONTE": "Fonte1"},
+            {
+                "SERCODIGO": "SERIE_A",
+                "SERNOME": "Serie A",
+                "BASNOME": "Macroeconômico",
+                "TEMCODIGO": 1,
+                "FONTE": "Fonte1",
+            },
+            {
+                "SERCODIGO": "SERIE_B",
+                "SERNOME": "Serie B",
+                "BASNOME": "Social",
+                "TEMCODIGO": 2,
+                "FONTE": "Fonte2",
+            },
+            {
+                "SERCODIGO": "SERIE_C",
+                "SERNOME": "Serie C",
+                "BASNOME": "Regional",
+                "TEMCODIGO": 1,
+                "FONTE": "Fonte1",
+            },
         ]
 
     monkeypatch.setattr(catalog, "_fetch_all_series", fake_fetch_all)
 
     # Mock download to track calls
     from ipeadata_fetcher.client import IpeadataClient
-    orig_download = IpeadataClient.download_resource
 
     def mock_download(self, url, dest, *, manifest_path=None):
         executed.append(url)

@@ -1,7 +1,6 @@
 """Tests for ipeadata-fetcher storage module."""
 
 import datetime as dt
-from pathlib import Path
 
 from ipeadata_fetcher.storage import DataRepository
 
@@ -86,7 +85,7 @@ def test_path_for_entry_with_year_month_partition() -> None:
 
 
 def test_path_for_entry_with_year_quarter_partition() -> None:
-    """Year-quarter partition is included in filename when year and quarter are present."""
+    """Year-quarter partition appears in the filename when both are set."""
     repo = DataRepository("/tmp/test")
     entry = {
         "id": "SERIE_TEST",

@@ -164,10 +164,7 @@ def list_series_by_base(base: str) -> list[dict[str, Any]]:
     """Filter series by base name (macro, social, regional)."""
     all_series = _fetch_all_series()
     base_lower = base.lower()
-    filtered = [
-        s for s in all_series
-        if (s.get("BASNOME") or "").lower() == base_lower
-    ]
+    filtered = [s for s in all_series if (s.get("BASNOME") or "").lower() == base_lower]
     return _series_to_entries(filtered)
 
 
