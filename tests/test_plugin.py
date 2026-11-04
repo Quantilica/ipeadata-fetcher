@@ -148,3 +148,27 @@ def test_entries_use_real_odata_metadata_fields(monkeypatch) -> None:
     assert entries["SERIE_A"]["group"] == "macro"
     assert entries["SERIE_A"]["periodicidade"] == "Mensal"
     assert entries["SERIE_C"]["fonte"] == "STN"
+
+
+def test_backfill_escreve_pelo_console_do_sdk(monkeypatch, tmp_path) -> None:
+    """A saída do ``backfill`` passa pelo console (sem ``print``) e sai com 0."""
+    from ipeadata_fetcher.client import IpeadataClient
+
+    monkeypatch.setattr(
+        catalog,
+        "_fetch_all_series",
+        lambda: [{"SERCODIGO": "SERIE_A", "BASNOME": "Macroeconômico"}],
+    )
+    monkeypatch.setattr(
+        IpeadataClient,
+        "download_resource",
+        lambda self, url, dest, *, manifest_path=None: Path(dest).write_text(
+            '{"value": [{"VALDATA": "2024-01-01", "VALVALOR": 1}]}'
+        ),
+    )
+    result = CliRunner().invoke(
+        app, ["backfill", "--all", "--verbose", "-o", str(tmp_path)]
+    )
+    assert result.exit_code == 0
+    assert "Verificando 1 séries" in result.output
+    assert "Concluído: 1 baixada(s)" in result.output

@@ -9,6 +9,7 @@ from typing import Any
 
 import typer
 from quantilica.cli.sdk import FetcherApp, make_resolve_groups
+from quantilica.cli.ui import get_console
 from quantilica.core.sync import FreshnessPolicy
 
 from .backfill import run_backfill
@@ -54,7 +55,7 @@ def convert(
     try:
         from ipeadata_fetcher import lake
     except ImportError as exc:
-        raise RuntimeError(
+        raise ImportError(
             "Conversão para o lake requer o extra 'analysis'. "
             "Instale com: quantilica install ipeadata --extra analysis"
         ) from exc
@@ -100,6 +101,12 @@ def _backfill_command(
     """Carga histórica exaustiva de séries do Ipeadata (JSON)."""
     from ipeadata_fetcher.catalog import _fetch_all_series
 
+    console = get_console()
+
+    def say(message: str) -> None:
+        # Texto dinâmico (códigos, mensagens de erro): sem interpretar markup.
+        console.print(message, markup=False, highlight=False, soft_wrap=True)
+
     all_series = _fetch_all_series()
 
     # Mapping from user-friendly base names to BASNOME values
@@ -144,10 +151,10 @@ def _backfill_command(
 
     all_series = [s for s in all_series if "SERCODIGO" in s]
     if not all_series:
-        print("Nenhuma série corresponde aos filtros.")
+        say("Nenhuma série corresponde aos filtros.")
         raise typer.Exit(0)
 
-    print(f"Verificando {len(all_series)} séries ({workers} workers)...")
+    say(f"Verificando {len(all_series)} séries ({workers} workers)...")
     client = IpeadataClient(workers=workers)
     base_dir = output or (
         Path(os.environ.get("DATA_DIR", "~/data")).expanduser() / "ipeadata"
@@ -162,17 +169,17 @@ def _backfill_command(
         today=today,
         workers=workers,
         resume=resume,
-        progress=print if verbose else None,
+        progress=say if verbose else None,
     )
-    print(
+    say(
         f"Concluído: {len(report.downloaded)} baixada(s), "
         f"{len(report.unchanged)} sem mudança (SERATUALIZACAO), "
         f"{len(report.empty)} vazia(s), {len(report.failed)} falha(s)."
     )
     for code in report.empty:
-        print(f"ERRO série vazia: {code}")
+        say(f"ERRO série vazia: {code}")
     for code, msg in report.failed.items():
-        print(f"ERRO {code}: {msg}")
+        say(f"ERRO {code}: {msg}")
     if report.errors:
         raise typer.Exit(1)
 
