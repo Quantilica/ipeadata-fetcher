@@ -7,6 +7,11 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+### Adicionado
+- `backfill` incremental por `SERATUALIZACAO`: o estado (`SERCODIGO -> SERATUALIZACAO` da última carga válida) fica em `series/_seratualizacao.json`; `--resume` (padrão) só rebaixa séries cuja data mudou (série sem data é sempre rebaixada) e `--restart` rebaixa tudo. Antes o `--resume` só pulava arquivo do mesmo dia, então cada rodada rebaixava as ~4.000 séries.
+- `backfill` em paralelo: `--workers` (padrão 3, o valor da carga regional de 11 GB) com pool limitado; `IpeadataClient(workers=N)` aplica `HostPolicy` ao host do OData (`max_concurrency=N`, `min_interval` 0,25 s, `deadline` 900 s).
+- `backfill`: série vazia (`value: []`), resposta inválida e falha de rede são erros contados no resumo (o arquivo vazio é descartado, a série fica fora do estado e é tentada de novo); o comando sai com código 1 se houver algum. Atenção: séries legitimamente sem valores (há ~2.300 com `SERSTATUS != A`) também contam como erro.
+
 ### Corrigido
 - `sync todas --dry-run` estourava `ValueError: Grupo desconhecido: 'a'` e
   `sync macro_all` dava "Grupo desconhecido": o `FetcherApp` recebia

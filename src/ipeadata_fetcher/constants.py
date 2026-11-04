@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-ODATA_BASE_URL = "https://www.ipeadata.gov.br/api/odata4"
+ODATA_HOST = "www.ipeadata.gov.br"
+ODATA_BASE_URL = f"https://{ODATA_HOST}/api/odata4"
 METADADOS_URL = f"{ODATA_BASE_URL}/Metadados"
 TEMAS_URL = f"{ODATA_BASE_URL}/Temas"
 TERRITORIOS_URL = f"{ODATA_BASE_URL}/Territorios"

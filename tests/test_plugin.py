@@ -1,5 +1,7 @@
 """Tests for ipeadata-fetcher Typer plugin."""
 
+from pathlib import Path
+
 from typer.testing import CliRunner
 
 from ipeadata_fetcher import catalog
@@ -61,6 +63,7 @@ def test_cli_backfill_filters(monkeypatch, tmp_path) -> None:
 
     def mock_download(self, url, dest, *, manifest_path=None):
         executed.append(url)
+        Path(dest).write_text('{"value": [{"VALDATA": "2024-01-01", "VALVALOR": 1}]}')
 
     monkeypatch.setattr(IpeadataClient, "download_resource", mock_download)
 

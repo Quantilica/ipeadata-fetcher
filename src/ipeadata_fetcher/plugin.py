@@ -11,9 +11,9 @@ import typer
 from quantilica.cli.sdk import FetcherApp, make_resolve_groups
 from quantilica.core.sync import FreshnessPolicy
 
+from .backfill import run_backfill
 from .catalog import GROUP_ALIASES, GROUPS, list_datasets
 from .client import IpeadataClient
-from .constants import valores_serie_url
 from .storage import DataRepository
 
 # O SDK espera ``alias -> lista de grupos``; passar a string crua faria ``list("all")``
@@ -86,11 +86,19 @@ def _backfill_command(
     source: str | None = _backfill_options["source"],
     all_bases: bool = _backfill_options["all_bases"],
     output: Path | None = typer.Option(None, "--output", "-o"),  # noqa: B008
-    resume: bool = typer.Option(True, "--resume/--restart"),  # noqa: B008
+    resume: bool = typer.Option(  # noqa: B008
+        True,
+        "--resume/--restart",
+        help="--resume rebaixa só séries cuja SERATUALIZACAO mudou; "
+        "--restart rebaixa tudo",
+    ),
+    workers: int = typer.Option(  # noqa: B008
+        3, "--workers", min=1, help="Downloads simultâneos (limite por host)"
+    ),
     verbose: bool = typer.Option(False, "--verbose"),  # noqa: B008
 ) -> None:
     """Carga histórica exaustiva de séries do Ipeadata (JSON)."""
-    from ipeadata_fetcher.catalog import _fetch_all_series, _series_to_entries
+    from ipeadata_fetcher.catalog import _fetch_all_series
 
     all_series = _fetch_all_series()
 
@@ -134,33 +142,39 @@ def _backfill_command(
         }
         all_series = [s for s in all_series if s.get("SERCODIGO") in core_codes]
 
-    units = [e["id"] for e in _series_to_entries(all_series)]
-
-    if not units:
+    all_series = [s for s in all_series if "SERCODIGO" in s]
+    if not all_series:
         print("Nenhuma série corresponde aos filtros.")
         raise typer.Exit(0)
 
-    print(f"Baixando {len(units)} séries...")
-    client = IpeadataClient()  # noqa: E501
+    print(f"Verificando {len(all_series)} séries ({workers} workers)...")
+    client = IpeadataClient(workers=workers)
     base_dir = output or (
         Path(os.environ.get("DATA_DIR", "~/data")).expanduser() / "ipeadata"
     )
     out_dir = base_dir / "series"
-    out_dir.mkdir(parents=True, exist_ok=True)
     today = dt.date.today().strftime("%Y%m%d")
 
-    for i, unit in enumerate(units, 1):
-        out_file = out_dir / f"{unit}@{today}.json"
-        if resume and out_file.exists():
-            if verbose:
-                print(f"[{i}/{len(units)}] {unit} - pulando (já existe)")
-            continue
-        if verbose:
-            print(f"[{i}/{len(units)}] {unit} - baixando...")
-        url = valores_serie_url(unit)
-        client.download_resource(url, out_file)
-
-    print(f"Concluído: {len(units)} série(s).")
+    report = run_backfill(
+        all_series,
+        client,
+        out_dir,
+        today=today,
+        workers=workers,
+        resume=resume,
+        progress=print if verbose else None,
+    )
+    print(
+        f"Concluído: {len(report.downloaded)} baixada(s), "
+        f"{len(report.unchanged)} sem mudança (SERATUALIZACAO), "
+        f"{len(report.empty)} vazia(s), {len(report.failed)} falha(s)."
+    )
+    for code in report.empty:
+        print(f"ERRO série vazia: {code}")
+    for code, msg in report.failed.items():
+        print(f"ERRO {code}: {msg}")
+    if report.errors:
+        raise typer.Exit(1)
 
 
 app = fetcher.app

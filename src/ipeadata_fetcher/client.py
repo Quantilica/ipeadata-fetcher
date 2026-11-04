@@ -6,13 +6,14 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from quantilica.core.http import HttpClient
+from quantilica.core.http import HostPolicy, HttpClient
 from quantilica.core.logging import get_logger
 from quantilica.core.manifests import DownloadManifest
 
 from .constants import (
     METADADOS_URL,
     ODATA_BASE_URL,
+    ODATA_HOST,
     PAISES_URL,
     TEMAS_URL,
     TERRITORIOS_URL,
@@ -31,10 +32,30 @@ class IpeadataClient:
         base_url: str = ODATA_BASE_URL,
         client: HttpClient | None = None,
         logger: logging.Logger | None = None,
+        workers: int | None = None,
+        min_interval: float = 0.25,
+        deadline: float | None = 900.0,
     ) -> None:
         self.base_url = base_url.rstrip("/")
+        # Com ``workers`` o limite por host (HostPolicy) vale para o pool da carga:
+        # no máximo ``workers`` requisições simultâneas, espaçadas de ``min_interval``
+        # e abortadas após ``deadline`` segundos.
+        policies = (
+            {
+                ODATA_HOST: HostPolicy(
+                    min_interval=min_interval,
+                    max_concurrency=max(1, workers),
+                    deadline=deadline,
+                )
+            }
+            if workers is not None
+            else None
+        )
         self.client = client or HttpClient(
-            follow_redirects=False, http2=False, emulate_browser=True
+            follow_redirects=False,
+            http2=False,
+            emulate_browser=True,
+            host_policies=policies,
         )
         self.logger = logger or get_logger(__name__)
 
