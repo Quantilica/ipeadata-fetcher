@@ -15,6 +15,7 @@ try:
     from quantilica.analytics.lake import ConvertResult, LakeWriter
     from quantilica.core.lake import (
         DatasetDescriptor,
+        file_key,
         partition_types_for,
         select_current,
     )
@@ -151,12 +152,12 @@ class IpeadataLakeConverter:
         # Periodicidade real de cada serie, do arquivo de metadados (PERNOME).
         periodicidades: dict[str, str | None] = {}
         for raw_file in active_files:
-            if raw_file.stem.split("@")[0].lower() in ("metadados", "series"):
+            if file_key(raw_file).lower() in ("metadados", "series"):
                 periodicidades.update(_periodicidades(_read_json_items(raw_file)))
 
         # First convert dimensions
         for raw_file in active_files:
-            stem = raw_file.stem.split("@")[0].lower()
+            stem = file_key(raw_file).lower()
             dim_key = None
             if stem in ("metadados", "series"):
                 dim_key = "series"
@@ -177,7 +178,7 @@ class IpeadataLakeConverter:
 
         # Now convert series values
         for raw_file in active_files:
-            stem = raw_file.stem.split("@")[0]
+            stem = file_key(raw_file)
             stem_lower = stem.lower()
             if stem_lower in ("metadados", "series", "temas", "territorios", "paises"):
                 continue
@@ -225,7 +226,7 @@ class IpeadataLakeConverter:
                 is_regional = parent_group == "regional" or bool(has_nivel)
 
                 # Periodicidade vem dos metadados da serie, nunca fixa.
-                sercodigo = raw_file.stem.split("@")[0]
+                sercodigo = file_key(raw_file)
                 if "sercodigo" in df.columns:
                     codes = df["sercodigo"].drop_nulls().unique().to_list()
                     if len(codes) == 1:
