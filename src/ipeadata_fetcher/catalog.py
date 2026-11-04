@@ -180,7 +180,9 @@ def list_series_by_base(base: str) -> list[dict[str, Any]]:
 
 # Compatibilidade: catálogo padrão usa apenas as 18 séries core.
 # Para sincronização completa, use `list_all_series()` ou `list_series_by_base()`.
+# "all" incluído para que `resolve_groups` o reconheça; as entradas vêm de `list_all_series()`.
 GROUPS: dict[str, dict[str, Any]] = _core_groups()
+GROUPS["all"] = {"name": "Todas as séries do Ipeadata (exaustivo)", "entries": []}
 
 GROUP_ALIASES: dict[str, str] = {
     "padrao": "macro",
@@ -202,15 +204,12 @@ def list_datasets(group: str | None = None) -> list[dict[str, Any]]:
     """List datasets for a group or all groups.
 
     Groups:
+      - all: todas as ~4000 séries do Ipeadata (padrão)
       - macro, social, regional, dimensoes: core 18 séries (compatibilidade)
-      - all: todas as ~4000 séries do Ipeadata
       - macro_all, social_all, regional_all: todas as séries da base
     """
     if group is None:
-        entries: list[dict[str, Any]] = []
-        for g_data in GROUPS.values():
-            entries.extend(g_data["entries"])
-        return entries
+        return list_all_series()
 
     canon = GROUP_ALIASES.get(group, group)
 

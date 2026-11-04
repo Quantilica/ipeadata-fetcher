@@ -37,9 +37,8 @@ class IpeadataClient:
         deadline: float | None = 900.0,
     ) -> None:
         self.base_url = base_url.rstrip("/")
-        # Com ``workers`` o limite por host (HostPolicy) vale para o pool da carga:
-        # no máximo ``workers`` requisições simultâneas, espaçadas de ``min_interval``
-        # e abortadas após ``deadline`` segundos.
+        # Otimização: desabilita HEAD (endpoint OData não suporta → 404)
+        # Aumenta attempts/timeout para GETs lentos do OData
         policies = (
             {
                 ODATA_HOST: HostPolicy(
@@ -56,6 +55,9 @@ class IpeadataClient:
             http2=False,
             emulate_browser=True,
             host_policies=policies,
+            attempts=5,
+            timeout=120.0,
+            retry_base_delay=1.0,
         )
         self.logger = logger or get_logger(__name__)
 
@@ -95,13 +97,60 @@ class IpeadataClient:
         dest: Path,
         *,
         manifest_path: Path | None = None,
+        force: bool = False,
     ) -> DownloadManifest:
-        """Download raw JSON endpoint with SHA-256 manifest."""
-        # manifest_path is accepted for compatibility but not used by HttpClient
-        return self.client.download_with_manifest(
-            url,
+        """Download raw JSON endpoint with SHA-256 manifest.
+
+        Bypasses HEAD freshness check (Ipeadata OData returns 404 on HEAD).
+        Uses GET streaming to capture headers for manifest.
+        """
+        from quantilica.core.http import DownloadManifest
+        from quantilica.core.manifests import write_manifest_sidecar
+        from quantilica.core.files import write_stream_atomic, ensure_parent
+        import hashlib
+
+        target = Path(dest)
+        ensure_parent(target)
+
+        # Direct GET streaming - bypass HEAD freshness check entirely
+        # Ipeadata OData returns 404 on HEAD, but GET works
+        sha256 = hashlib.sha256()
+        size_bytes = 0
+        response_headers = {}
+
+        def _stream(cb):
+            nonlocal size_bytes, response_headers
+            with self.client.stream("GET", url) as response:
+                response.raise_for_status()
+                # Capture headers from the streaming GET response
+                response_headers["Last-Modified"] = response.headers.get("Last-Modified")
+                response_headers["ETag"] = response.headers.get("ETag")
+                response_headers["Content-Length"] = response.headers.get("Content-Length")
+                for chunk in response.iter_bytes():
+                    sha256.update(chunk)
+                    size_bytes += len(chunk)
+                    cb(chunk)
+
+        write_stream_atomic(
             dest,
+            lambda w: _stream(w),
+            validate=lambda p: None,  # JSON payload validation happens in backfill
+        )
+
+        manifest = DownloadManifest.from_digest(
             source_id="ipeadata",
             dataset_id="series",
+            url=url,
+            sha256=sha256.hexdigest(),
+            size_bytes=size_bytes,
+            path=str(target.absolute()),
             producer="ipeadata-fetcher",
+            metadata={
+                "remote_last_modified": response_headers.get("Last-Modified"),
+                "remote_etag": response_headers.get("ETag"),
+                "remote_content_length": response_headers.get("Content-Length"),
+            },
         )
+        from quantilica.core.manifests import write_manifest_sidecar
+        write_manifest_sidecar(target, manifest)
+        return target

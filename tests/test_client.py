@@ -44,8 +44,24 @@ def test_download_resource(tmp_path) -> None:
     client = IpeadataClient()
     target = tmp_path / "test.json"
     mock_manifest = MagicMock(spec=DownloadManifest)
-    with patch.object(
-        client.client, "download_with_manifest", return_value=mock_manifest
-    ):
-        res = client.download_resource("https://ipeadata/test.json", target)
-        assert res == mock_manifest
+
+    # Mock the streaming GET and head_or_get calls
+    mock_response = MagicMock()
+    mock_response.raise_for_status = MagicMock()
+    mock_response.iter_bytes.return_value = [b"test content"]
+    mock_response.headers = {
+        "Last-Modified": "Mon, 01 Jan 2024 12:00:00 GMT",
+        "ETag": "abc123",
+        "Content-Length": "12",
+    }
+
+    mock_stream_cm = MagicMock()
+    mock_stream_cm.__enter__ = MagicMock(return_value=mock_response)
+    mock_stream_cm.__exit__ = MagicMock(return_value=False)
+
+    with patch.object(client.client, "stream", return_value=mock_stream_cm) as mock_stream:
+        with patch.object(client.client, "head_or_get", return_value=mock_response):
+            res = client.download_resource("https://ipeadata/test.json", target)
+            assert res == target
+            assert res.exists()
+            mock_stream.assert_called_once()
