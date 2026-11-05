@@ -45,6 +45,7 @@ class FakeOData:
             time.sleep(self.delay)
             if code not in self.values:
                 raise RuntimeError("HTTP 500")
+            Path(dest).parent.mkdir(parents=True, exist_ok=True)
             Path(dest).write_text(json.dumps({"value": self.values[code]}))
         finally:
             with self._lock:

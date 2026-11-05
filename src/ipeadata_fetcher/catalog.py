@@ -155,7 +155,7 @@ def _series_to_entries(series_list: list[dict[str, Any]]) -> list[dict[str, Any]
         {
             "id": s["SERCODIGO"],
             "base_id": s["SERCODIGO"],
-            "name": s["SERNOME"],
+            "name": s.get("SERNOME") or s["SERCODIGO"],
             "url": valores_serie_url(s["SERCODIGO"]),
             "ext": "json",
             "group": _base_group(s.get("BASNOME")),
@@ -165,6 +165,8 @@ def _series_to_entries(series_list: list[dict[str, Any]]) -> list[dict[str, Any]
             "unidade": s.get("UNINOME") or s.get("SERUNIDADE"),
             "periodicidade": s.get("PERNOME") or s.get("SERPERIODICIDADE"),
             "ativa": is_ativa(s.get("SERSTATUS")),
+            # Carimbo estável de versão: muda só quando a série é atualizada.
+            "seratualizacao": s.get("SERATUALIZACAO"),
         }
         for s in series_list
         if "SERCODIGO" in s

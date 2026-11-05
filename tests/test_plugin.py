@@ -64,6 +64,7 @@ def test_cli_backfill_filters(monkeypatch, tmp_path) -> None:
 
     def mock_download(self, url, dest, *, manifest_path=None):
         executed.append(url)
+        Path(dest).parent.mkdir(parents=True, exist_ok=True)
         Path(dest).write_text('{"value": [{"VALDATA": "2024-01-01", "VALVALOR": 1}]}')
 
     monkeypatch.setattr(IpeadataClient, "download_resource", mock_download)
@@ -163,8 +164,11 @@ def test_backfill_escreve_pelo_console_do_sdk(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         IpeadataClient,
         "download_resource",
-        lambda self, url, dest, *, manifest_path=None: Path(dest).write_text(
-            '{"value": [{"VALDATA": "2024-01-01", "VALVALOR": 1}]}'
+        lambda self, url, dest, *, manifest_path=None: (
+            Path(dest).parent.mkdir(parents=True, exist_ok=True),
+            Path(dest).write_text(
+                '{"value": [{"VALDATA": "2024-01-01", "VALVALOR": 1}]}'
+            ),
         ),
     )
     result = CliRunner().invoke(
@@ -217,6 +221,7 @@ def test_backfill_somente_ativas(monkeypatch, tmp_path) -> None:
 
     def fake_download(self, url, dest, *, manifest_path=None):
         baixadas.append(url)
+        Path(dest).parent.mkdir(parents=True, exist_ok=True)
         Path(dest).write_text('{"value": [{"VALDATA": "2024-01-01", "VALVALOR": 1}]}')
 
     monkeypatch.setattr(IpeadataClient, "download_resource", fake_download)

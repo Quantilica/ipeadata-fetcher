@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from quantilica.cli.sdk import FetcherApp, make_resolve_groups
+from quantilica.cli.sdk import CheckPlanItem, FetcherApp, make_resolve_groups
 from quantilica.cli.ui import get_console
 from quantilica.core.sync import FreshnessPolicy
 
@@ -42,11 +42,28 @@ def list_datasets(group: str | None = None) -> list[dict[str, Any]]:
     return _catalog_list_datasets(group, somente_ativas=_SOMENTE_ATIVAS.get())
 
 
+def _stamp_from_entry(entry: dict[str, Any]) -> dt.date | None:
+    """Data de versão da série (``SERATUALIZACAO``), se disponível.
+
+    O OData do Ipeadata não responde ``HEAD``; sem este carimbo o caminho cairia
+    na data de hoje e o modo plano Postgres nunca casaria a versão, forçando
+    re-download diário das ~4 mil séries.
+    """
+    raw = entry.get("seratualizacao")
+    if not raw:
+        return None
+    try:
+        return dt.datetime.fromisoformat(str(raw)).date()
+    except (TypeError, ValueError):
+        return None
+
+
 def path_builder(
     output_dir: Path, entry: dict[str, Any], last_modified: dt.date | None
 ) -> Path:
     """Build local storage path for a dataset entry."""
-    return DataRepository(output_dir).path_for_entry(entry, last_modified=last_modified)
+    stamp = _stamp_from_entry(entry) or last_modified
+    return DataRepository(output_dir).path_for_entry(entry, last_modified=stamp)
 
 
 fetcher = FetcherApp(
@@ -59,6 +76,38 @@ fetcher = FetcherApp(
     default_output=Path("/data/ipeadata"),
     freshness_policy=FreshnessPolicy.REMOTE_ONLY,
 )
+
+
+def _ipeadata_check_entry(entry: dict[str, Any], output_dir: Path) -> CheckPlanItem:
+    """Veredito de frescor sem rede (o plano Postgres decide o skip).
+
+    O OData do Ipeadata não responde ``HEAD`` (404) e tem ~4 mil séries: sondar
+    cada uma no ``check`` levava mais de 20 min. O veredito local (arquivo ou
+    sidecar presente) mantém o ``check`` barato; com ``CRON_PLAN_MODE=postgres``
+    o plano em ``ingest.file_version`` reclassifica cada item para ``skip``.
+    """
+    dataset = str(entry.get("group") or "series")
+    eid = str(entry.get("id", "unknown"))
+    local = path_builder(output_dir, entry, None)
+    sidecar = local.with_name(local.name + ".manifest.json")
+    exists = local.exists() or sidecar.exists()
+    return CheckPlanItem(
+        dataset=dataset,
+        id=eid,
+        url=str(entry.get("url", "")),
+        partition=str(entry.get("tema")) if entry.get("tema") is not None else None,
+        local_path=str(local),
+        remote_etag=None,
+        remote_last_modified=None,
+        remote_size=None,
+        local_exists=exists,
+        action="skip-up-to-date" if exists else "download",
+        reason="local-exists" if exists else "not-probed",
+        entry=dict(entry),
+    )
+
+
+fetcher.check_entry = _ipeadata_check_entry  # type: ignore[method-assign]
 
 
 def convert(
@@ -240,6 +289,14 @@ def _backfill_command(
     out_dir = base_dir / "series"
     today = dt.date.today().strftime("%Y%m%d")
 
+    # Mesmo layout do `sync`: <grupo>/<SERCODIGO>@<SERATUALIZACAO>.json
+    from ipeadata_fetcher.catalog import _series_to_entries
+
+    entries_by_code = {e["id"]: e for e in _series_to_entries(all_series)}
+
+    def _path_for(code: str) -> Path:
+        return path_builder(base_dir, entries_by_code[code], None)
+
     report = run_backfill(
         all_series,
         client,
@@ -248,6 +305,7 @@ def _backfill_command(
         workers=workers,
         resume=resume,
         progress=say if verbose else None,
+        path_for=_path_for,
     )
     say(
         f"Concluído: {len(report.downloaded)} baixada(s), "

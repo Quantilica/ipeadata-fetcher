@@ -88,6 +88,7 @@ def run_backfill(
     resume: bool = True,
     progress: Callable[[str], None] | None = None,
     save_every: int = 50,
+    path_for: Callable[[str], Path] | None = None,
 ) -> BackfillReport:
     """Baixa as séries (``SERCODIGO``/``SERATUALIZACAO``) com um pool limitado.
 
@@ -95,12 +96,14 @@ def run_backfill(
         series: Metadados das séries (dicts do OData).
         client: Cliente com ``download_resource(url, dest)``; o limite por host
             (``HostPolicy``) é do ``HttpClient`` dele.
-        out_dir: Pasta de saída dos ``<SERCODIGO>@<today>.json``.
-        today: Carimbo ``AAAAMMDD`` dos arquivos.
+        out_dir: Pasta do estado ``_seratualizacao.json`` (e destino padrão).
+        today: Carimbo ``AAAAMMDD`` dos arquivos (usado sem ``path_for``).
         workers: Downloads simultâneos (mínimo 1).
         resume: Pula séries cuja ``SERATUALIZACAO`` não mudou; ``False`` rebaixa tudo.
         progress: Recebe uma linha por série (opcional).
         save_every: Salva o estado a cada N séries concluídas.
+        path_for: Destino canônico por código (mesmo ``path_builder`` do ``sync``);
+            sem ele, usa ``out_dir/<SERCODIGO>@<today>.json``.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     state_path = out_dir / STATE_NAME
@@ -118,7 +121,11 @@ def run_backfill(
         todo.append((code, stamp))
 
     def fetch(code: str) -> str | None:
-        dest = out_dir / f"{code}@{today}.json"
+        dest = (
+            path_for(code)
+            if path_for is not None
+            else out_dir / f"{code}@{today}.json"
+        )
         client.download_resource(valores_serie_url(code), dest)
         problem = _check_payload(dest)
         if problem is not None:
