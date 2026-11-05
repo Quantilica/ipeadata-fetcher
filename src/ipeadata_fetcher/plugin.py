@@ -16,7 +16,7 @@ from quantilica.cli.sdk import CheckPlanItem, FetcherApp, make_resolve_groups
 from quantilica.cli.ui import get_console
 from quantilica.core.sync import FreshnessPolicy
 
-from .backfill import run_backfill
+from .backfill import StateLockedError, rebuild_state, run_backfill
 from .catalog import GROUP_ALIASES, GROUPS, is_ativa
 from .catalog import list_datasets as _catalog_list_datasets
 from .client import IpeadataClient
@@ -222,6 +222,12 @@ def _backfill_command(
         3, "--workers", min=1, help="Downloads simultâneos (limite por host)"
     ),
     verbose: bool = typer.Option(False, "--verbose"),  # noqa: B008
+    rebuild: bool = typer.Option(  # noqa: B008
+        False,
+        "--rebuild-state",
+        help="Reconstrói o _seratualizacao.json a partir dos arquivos e sidecars "
+        "já baixados (caminho canônico por SERATUALIZACAO), sem baixar nada",
+    ),
 ) -> None:
     """Carga histórica exaustiva de séries do Ipeadata (JSON)."""
     from ipeadata_fetcher.catalog import _fetch_all_series
@@ -270,8 +276,6 @@ def _backfill_command(
         say("Nenhuma série corresponde aos filtros.")
         raise typer.Exit(0)
 
-    say(f"Verificando {len(all_series)} séries ({workers} workers)...")
-    client = IpeadataClient(workers=workers)
     base_dir = output or (
         Path(os.environ.get("DATA_DIR", "~/data")).expanduser() / "ipeadata"
     )
@@ -286,16 +290,36 @@ def _backfill_command(
     def _path_for(code: str) -> Path:
         return path_builder(base_dir, entries_by_code[code], None)
 
-    report = run_backfill(
-        all_series,
-        client,
-        out_dir,
-        today=today,
-        workers=workers,
-        resume=resume,
-        progress=say if verbose else None,
-        path_for=_path_for,
-    )
+    if rebuild:
+        try:
+            rebuilt = rebuild_state(all_series, out_dir, _path_for)
+        except StateLockedError as exc:
+            say(f"ERRO: {exc}")
+            raise typer.Exit(2) from None
+        say(
+            f"Estado reconstruído: {len(rebuilt.found)} série(s) com arquivo ou "
+            f"sidecar na versão atual, {len(rebuilt.missing)} sem (serão "
+            f"baixadas), {len(rebuilt.undated)} sem SERATUALIZACAO; "
+            f"{rebuilt.state_size} série(s) no estado."
+        )
+        return
+
+    say(f"Verificando {len(all_series)} séries ({workers} workers)...")
+    client = IpeadataClient(workers=workers)
+    try:
+        report = run_backfill(
+            all_series,
+            client,
+            out_dir,
+            today=today,
+            workers=workers,
+            resume=resume,
+            progress=say if verbose else None,
+            path_for=_path_for,
+        )
+    except StateLockedError as exc:
+        say(f"ERRO: {exc}")
+        raise typer.Exit(2) from None
     say(
         f"Concluído: {len(report.downloaded)} baixada(s), "
         f"{len(report.unchanged)} sem mudança (SERATUALIZACAO), "
@@ -305,6 +329,8 @@ def _backfill_command(
         say(f"ERRO série vazia: {code}")
     for code, msg in report.failed.items():
         say(f"ERRO {code}: {msg}")
+    for msg in report.state_save_errors:
+        say(f"AVISO checkpoint do estado falhou: {msg}")
     if report.errors:
         raise typer.Exit(1)
 
