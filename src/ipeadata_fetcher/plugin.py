@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import contextvars
 import datetime as dt
+import functools
+import inspect
 import os
+import typing
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +17,8 @@ from quantilica.cli.ui import get_console
 from quantilica.core.sync import FreshnessPolicy
 
 from .backfill import run_backfill
-from .catalog import GROUP_ALIASES, GROUPS, list_datasets
+from .catalog import GROUP_ALIASES, GROUPS, is_ativa
+from .catalog import list_datasets as _catalog_list_datasets
 from .client import IpeadataClient
 from .storage import DataRepository
 
@@ -23,6 +28,18 @@ ALIASES: dict[str, list[str]] = {
     alias: [canon] for alias, canon in GROUP_ALIASES.items()
 }
 resolve_groups = make_resolve_groups(GROUPS, ALIASES)
+
+
+# ``--somente-ativas`` chega ao ``list_datasets`` (chamado pelo SDK só com o grupo)
+# por uma variável de contexto, definida durante o comando.
+_SOMENTE_ATIVAS: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "ipeadata_somente_ativas", default=False
+)
+
+
+def list_datasets(group: str | None = None) -> list[dict[str, Any]]:
+    """Catálogo do grupo, sem as séries inativas se ``--somente-ativas``."""
+    return _catalog_list_datasets(group, somente_ativas=_SOMENTE_ATIVAS.get())
 
 
 def path_builder(
@@ -62,6 +79,59 @@ def convert(
     return lake.converter.convert(input_dir, lake_dir, datasets=dataset, force=force)
 
 
+def _add_somente_ativas(command_name: str) -> None:
+    """Acrescenta ``--somente-ativas`` ao comando ``command_name`` do SDK."""
+    info = next(
+        c
+        for c in fetcher.app.registered_commands
+        if c.callback.__name__ == command_name
+    )
+    original = info.callback
+    # As anotações do SDK são strings (``from __future__ import annotations``) e
+    # só resolvem nos globais dele: resolve-as aqui para o Typer não as perder.
+    hints = typing.get_type_hints(original, include_extras=True)
+    sig = inspect.signature(original)
+    sig = sig.replace(
+        parameters=[
+            p.replace(annotation=hints.get(p.name, p.annotation))
+            for p in sig.parameters.values()
+        ],
+        return_annotation=inspect.Signature.empty,
+    )
+    option = inspect.Parameter(
+        "somente_ativas",
+        inspect.Parameter.KEYWORD_ONLY,
+        default=typer.Option(
+            False,
+            "--somente-ativas",
+            help="Ignora as séries inativas (SERSTATUS diferente de A); "
+            "padrão: baixa todas",
+        ),
+        annotation=bool,
+    )
+
+    @functools.wraps(original)
+    def wrapper(*args: Any, somente_ativas: bool = False, **kwargs: Any) -> Any:
+        token = _SOMENTE_ATIVAS.set(somente_ativas)
+        try:
+            return original(*args, **kwargs)
+        finally:
+            _SOMENTE_ATIVAS.reset(token)
+
+    del wrapper.__wrapped__  # o Typer deve ver a assinatura nova, não a original
+    wrapper.__signature__ = sig.replace(  # type: ignore[attr-defined]
+        parameters=[*sig.parameters.values(), option]
+    )
+    wrapper.__annotations__ = {
+        **{k: v for k, v in hints.items() if k != "return"},
+        "somente_ativas": bool,
+    }
+    info.callback = wrapper
+
+
+_add_somente_ativas("sync")
+_add_somente_ativas("check")
+
 fetcher.command_convert(convert)
 fetcher.command_pipeline(convert)
 
@@ -73,6 +143,11 @@ _backfill_options = {
     "theme": typer.Option(None, "--theme", help="Filtrar por tema (TEMCODIGO)"),
     "source": typer.Option(None, "--source", help="Filtrar por fonte"),
     "all_bases": typer.Option(False, "--all", help="Todas as bases"),
+    "somente_ativas": typer.Option(
+        False,
+        "--somente-ativas",
+        help="Ignora as séries inativas (SERSTATUS diferente de A)",
+    ),
 }
 
 
@@ -86,6 +161,7 @@ def _backfill_command(
     theme: int | None = _backfill_options["theme"],
     source: str | None = _backfill_options["source"],
     all_bases: bool = _backfill_options["all_bases"],
+    somente_ativas: bool = _backfill_options["somente_ativas"],
     output: Path | None = typer.Option(None, "--output", "-o"),  # noqa: B008
     resume: bool = typer.Option(  # noqa: B008
         True,
@@ -150,6 +226,8 @@ def _backfill_command(
         all_series = [s for s in all_series if s.get("SERCODIGO") in core_codes]
 
     all_series = [s for s in all_series if "SERCODIGO" in s]
+    if somente_ativas:
+        all_series = [s for s in all_series if is_ativa(s.get("SERSTATUS"))]
     if not all_series:
         say("Nenhuma série corresponde aos filtros.")
         raise typer.Exit(0)

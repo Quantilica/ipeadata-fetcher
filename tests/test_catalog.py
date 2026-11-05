@@ -51,3 +51,46 @@ def test_metadados_live() -> None:
     from ipeadata_fetcher.client import IpeadataClient
 
     assert len(IpeadataClient().get_metadados()) > 1000
+
+
+def _com_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    series = [
+        {
+            "SERCODIGO": "A",
+            "SERNOME": "A",
+            "BASNOME": "Macroeconômico",
+            "SERSTATUS": "A",
+        },
+        {
+            "SERCODIGO": "I",
+            "SERNOME": "I",
+            "BASNOME": "Macroeconômico",
+            "SERSTATUS": "I",
+        },
+        {"SERCODIGO": "X", "SERNOME": "X", "BASNOME": "Social", "SERSTATUS": None},
+        {"SERCODIGO": "S", "SERNOME": "S", "BASNOME": "Social"},
+        {"SERCODIGO": "L", "SERNOME": "L", "BASNOME": "Social", "SERSTATUS": " a "},
+    ]
+    monkeypatch.setattr(catalog, "_fetch_all_series", lambda: series)
+
+
+def test_entries_carry_ativa_from_serstatus(monkeypatch: pytest.MonkeyPatch) -> None:
+    _com_status(monkeypatch)
+    ativa = {e["id"]: e["ativa"] for e in list_datasets("todas")}
+    # SERSTATUS "A" (qualquer caixa/espaço) ou ausente -> ativa; outro valor -> inativa.
+    assert ativa == {"A": True, "I": False, "X": True, "S": True, "L": True}
+    assert all(isinstance(v, bool) for v in ativa.values())
+
+
+def test_somente_ativas_filters_inactive(monkeypatch: pytest.MonkeyPatch) -> None:
+    _com_status(monkeypatch)
+    todas = {e["id"] for e in list_datasets("todas")}
+    ativas = {e["id"] for e in list_datasets("todas", somente_ativas=True)}
+    assert todas == {"A", "I", "X", "S", "L"}  # padrão: baixa tudo
+    assert ativas == {"A", "X", "S", "L"}
+    macro = list_datasets("macro_all", somente_ativas=True)
+    assert {e["id"] for e in macro} == {"A"}
+    # grupos core não têm SERSTATUS: continuam inteiros
+    assert len(list_datasets("macro", somente_ativas=True)) == len(
+        list_datasets("macro")
+    )

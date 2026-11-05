@@ -23,6 +23,7 @@ __all__ = [
     "list_datasets",
     "list_all_series",
     "list_series_by_base",
+    "is_ativa",
 ]
 
 # Core series for backward compatibility / quick sync
@@ -142,6 +143,12 @@ def _base_group(basnome: str | None) -> str:
     return "macro" if folded.startswith("macro") else folded
 
 
+def is_ativa(serstatus: Any) -> bool:
+    """``SERSTATUS`` do OData -> série ativa? ``A`` (qualquer caixa) ou ausente: sim."""
+    status = str(serstatus).strip().upper() if serstatus is not None else ""
+    return status in ("", "A")
+
+
 def _series_to_entries(series_list: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Convert raw series metadata to catalog entries."""
     return [
@@ -157,25 +164,41 @@ def _series_to_entries(series_list: list[dict[str, Any]]) -> list[dict[str, Any]
             "fonte": s.get("FNTSIGLA") or s.get("FONTE"),
             "unidade": s.get("UNINOME") or s.get("SERUNIDADE"),
             "periodicidade": s.get("PERNOME") or s.get("SERPERIODICIDADE"),
+            "ativa": is_ativa(s.get("SERSTATUS")),
         }
         for s in series_list
         if "SERCODIGO" in s
     ]
 
 
-def list_all_series() -> list[dict[str, Any]]:
-    """Return all ~4000 series from Ipeadata metadata."""
-    return _series_to_entries(_fetch_all_series())
+def _only_active(
+    entries: list[dict[str, Any]], somente_ativas: bool
+) -> list[dict[str, Any]]:
+    # Entradas sem ``ativa`` (grupos core, dimensões) contam como ativas.
+    if not somente_ativas:
+        return entries
+    return [e for e in entries if e.get("ativa", True)]
 
 
-def list_series_by_base(base: str) -> list[dict[str, Any]]:
+def list_all_series(*, somente_ativas: bool = False) -> list[dict[str, Any]]:
+    """Return all ~4000 series from Ipeadata metadata.
+
+    Each entry has ``ativa`` (``SERSTATUS == "A"``). By default inactive series are
+    kept; ``somente_ativas=True`` drops them.
+    """
+    return _only_active(_series_to_entries(_fetch_all_series()), somente_ativas)
+
+
+def list_series_by_base(
+    base: str, *, somente_ativas: bool = False
+) -> list[dict[str, Any]]:
     """Filter series by base name (macro, social, regional)."""
     all_series = _fetch_all_series()
     # BASNOME real é "Macroeconômico"/"Social"/"Regional"; comparar pelo grupo
     # canônico (antes "macroeconômico" != "macro" e macro_all vinha vazio).
     wanted = _base_group(base)
     filtered = [s for s in all_series if _base_group(s.get("BASNOME")) == wanted]
-    return _series_to_entries(filtered)
+    return _only_active(_series_to_entries(filtered), somente_ativas)
 
 
 # Compatibilidade: catálogo padrão usa apenas as 18 séries core.
@@ -200,27 +223,30 @@ GROUP_ALIASES: dict[str, str] = {
 }
 
 
-def list_datasets(group: str | None = None) -> list[dict[str, Any]]:
+def list_datasets(
+    group: str | None = None, *, somente_ativas: bool = False
+) -> list[dict[str, Any]]:
     """List datasets for a group or all groups.
 
     Groups:
       - all: todas as ~4000 séries do Ipeadata (padrão)
       - macro, social, regional, dimensoes: core 18 séries (compatibilidade)
       - macro_all, social_all, regional_all: todas as séries da base
+
+    Toda entrada de série traz ``ativa`` (``SERSTATUS == "A"``); com
+    ``somente_ativas=True`` as inativas saem da lista (padrão: todas).
     """
     if group is None:
-        return list_all_series()
+        return list_all_series(somente_ativas=somente_ativas)
 
     canon = GROUP_ALIASES.get(group, group)
 
     if canon == "all":
-        return list_all_series()
-    if canon == "macro_all":
-        return list_series_by_base("macro")
-    if canon == "social_all":
-        return list_series_by_base("social")
-    if canon == "regional_all":
-        return list_series_by_base("regional")
+        return list_all_series(somente_ativas=somente_ativas)
+    if canon in ("macro_all", "social_all", "regional_all"):
+        return list_series_by_base(
+            canon.removesuffix("_all"), somente_ativas=somente_ativas
+        )
 
     if canon not in GROUPS:
         raise ValueError(f"Grupo desconhecido: {group!r}")

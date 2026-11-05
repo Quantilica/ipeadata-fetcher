@@ -173,3 +173,56 @@ def test_backfill_escreve_pelo_console_do_sdk(monkeypatch, tmp_path) -> None:
     assert result.exit_code == 0
     assert "Verificando 1 séries" in result.output
     assert "Concluído: 1 baixada(s)" in result.output
+
+
+def _series_com_status():
+    return [
+        {
+            "SERCODIGO": "SERIE_ATIVA",
+            "SERNOME": "a",
+            "BASNOME": "Macroeconômico",
+            "SERSTATUS": "A",
+            "PERNOME": "Mensal",
+        },
+        {
+            "SERCODIGO": "SERIE_INATIVA",
+            "SERNOME": "i",
+            "BASNOME": "Macroeconômico",
+            "SERSTATUS": "I",
+            "PERNOME": "Mensal",
+        },
+    ]
+
+
+def test_sync_somente_ativas(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(catalog, "_fetch_all_series", _series_com_status)
+    runner = CliRunner()
+    base = ["sync", "todas", "--dry-run", "-o", str(tmp_path)]
+    padrao = runner.invoke(app, base)
+    assert padrao.exit_code == 0, padrao.output
+    assert "SERIE_ATIVA" in padrao.output and "SERIE_INATIVA" in padrao.output
+    filtrado = runner.invoke(app, [*base, "--somente-ativas"])
+    assert filtrado.exit_code == 0, filtrado.output
+    assert "SERIE_ATIVA" in filtrado.output
+    assert "SERIE_INATIVA" not in filtrado.output
+    # a flag não vaza para a chamada seguinte
+    assert "SERIE_INATIVA" in runner.invoke(app, base).output
+
+
+def test_backfill_somente_ativas(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(catalog, "_fetch_all_series", _series_com_status)
+    from ipeadata_fetcher.client import IpeadataClient
+
+    baixadas: list[str] = []
+
+    def fake_download(self, url, dest, *, manifest_path=None):
+        baixadas.append(url)
+        Path(dest).write_text('{"value": [{"VALDATA": "2024-01-01", "VALVALOR": 1}]}')
+
+    monkeypatch.setattr(IpeadataClient, "download_resource", fake_download)
+    runner = CliRunner()
+    result = runner.invoke(
+        app, ["backfill", "--all", "--somente-ativas", "-o", str(tmp_path)]
+    )
+    assert result.exit_code == 0, result.output
+    assert len(baixadas) == 1 and "SERIE_ATIVA" in baixadas[0]

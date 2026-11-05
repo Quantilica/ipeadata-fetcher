@@ -78,6 +78,16 @@ def _periodicidades(meta_items: list[dict[str, Any]]) -> dict[str, str | None]:
     return result
 
 
+def _with_ativa(df: pl.DataFrame) -> pl.DataFrame:
+    """Coluna ``ativa`` (bool) de ``serstatus``: ``A`` ou ausente é ativa."""
+    if "serstatus" not in df.columns:
+        return df.with_columns(pl.lit(True).alias("ativa"))
+    status = pl.col("serstatus").cast(pl.Utf8).str.strip_chars().str.to_uppercase()
+    return df.with_columns(
+        status.is_in(["A", ""]).fill_null(True).alias("ativa"),
+    )
+
+
 class IpeadataLakeConverter:
     """Converts Ipeadata JSON snapshots and series into Universal Hive Parquet Lake."""
 
@@ -171,6 +181,8 @@ class IpeadataLakeConverter:
                 try:
                     df = pl.DataFrame(items)
                     df = df.rename({c: _norm_col(c) for c in df.columns})
+                    if dim_key == "series":
+                        df = _with_ativa(df)
                     writers[dim_key].write_polars(df, src=raw_file)
                     res.converted += 1
                 except Exception as exc:

@@ -233,3 +233,41 @@ def test_series_without_metadata_goes_to_quarantine_not_mensal(
         "periodicidade=__HIVE_DEFAULT_PARTITION__"
     ]
     assert "sem periodicidade nos metadados" in caplog.text
+
+
+def test_series_dimension_gets_ativa_column(tmp_path: Path) -> None:
+    raw_dir = tmp_path / "raw" / "dimensoes"
+    raw_dir.mkdir(parents=True)
+    lake_dir = tmp_path / "lake"
+    lake_dir.mkdir()
+    payload = {
+        "value": [
+            {"SERCODIGO": "A", "SERNOME": "a", "SERSTATUS": "A", "PERNOME": "Mensal"},
+            {"SERCODIGO": "I", "SERNOME": "i", "SERSTATUS": "I", "PERNOME": "Mensal"},
+            {"SERCODIGO": "N", "SERNOME": "n", "SERSTATUS": None, "PERNOME": "Mensal"},
+        ]
+    }
+    (raw_dir / "metadados@20261101.json").write_text(json.dumps(payload))
+    res = converter.convert(tmp_path / "raw", lake_dir, datasets=["series"])
+    assert not res.errors
+    df = pl.read_parquet(next((lake_dir / "ipeadata" / "series").rglob("*.parquet")))
+    assert df.schema["ativa"] == pl.Boolean
+    assert dict(zip(df["sercodigo"], df["ativa"], strict=True)) == {
+        "A": True,
+        "I": False,
+        "N": True,
+    }
+    # o status original continua no lake
+    assert "serstatus" in df.columns
+
+
+def test_series_without_serstatus_column_defaults_to_ativa(tmp_path: Path) -> None:
+    raw_dir = tmp_path / "raw" / "dimensoes"
+    raw_dir.mkdir(parents=True)
+    lake_dir = tmp_path / "lake"
+    lake_dir.mkdir()
+    payload = {"value": [{"SERCODIGO": "A", "SERNOME": "a", "PERNOME": "Mensal"}]}
+    (raw_dir / "metadados@20261101.json").write_text(json.dumps(payload))
+    converter.convert(tmp_path / "raw", lake_dir, datasets=["series"])
+    df = pl.read_parquet(next((lake_dir / "ipeadata" / "series").rglob("*.parquet")))
+    assert df["ativa"].to_list() == [True]
