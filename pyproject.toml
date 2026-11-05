@@ -52,6 +52,7 @@ ipeadata = "ipeadata_fetcher.lake:converter"
 
 [dependency-groups]
 dev = [
+    "pyright>=1.1.400",
     "ruff>=0.9.0",
     "pytest>=8.0.0",
     "pytest-cov",
@@ -78,3 +79,15 @@ packages = ["src/ipeadata_fetcher"]
 [build-system]
 requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
+
+[tool.pyright]
+typeCheckingMode = "basic"
+include = ["src"]
+
+[tool.coverage.run]
+source = ["ipeadata_fetcher"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+skip_covered = true
