@@ -104,10 +104,11 @@ class IpeadataClient:
         Bypasses HEAD freshness check (Ipeadata OData returns 404 on HEAD).
         Uses GET streaming to capture headers for manifest.
         """
+        import hashlib
+
+        from quantilica.core.files import ensure_parent, write_stream_atomic
         from quantilica.core.http import DownloadManifest
         from quantilica.core.manifests import write_manifest_sidecar
-        from quantilica.core.files import write_stream_atomic, ensure_parent
-        import hashlib
 
         target = Path(dest)
         ensure_parent(target)
@@ -123,9 +124,13 @@ class IpeadataClient:
             with self.client.stream("GET", url) as response:
                 response.raise_for_status()
                 # Capture headers from the streaming GET response
-                response_headers["Last-Modified"] = response.headers.get("Last-Modified")
+                response_headers["Last-Modified"] = response.headers.get(
+                    "Last-Modified"
+                )
                 response_headers["ETag"] = response.headers.get("ETag")
-                response_headers["Content-Length"] = response.headers.get("Content-Length")
+                response_headers["Content-Length"] = response.headers.get(
+                    "Content-Length"
+                )
                 for chunk in response.iter_bytes():
                     sha256.update(chunk)
                     size_bytes += len(chunk)
@@ -151,6 +156,5 @@ class IpeadataClient:
                 "remote_content_length": response_headers.get("Content-Length"),
             },
         )
-        from quantilica.core.manifests import write_manifest_sidecar
         write_manifest_sidecar(target, manifest)
         return target

@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from quantilica.core.manifests import DownloadManifest
-
 from ipeadata_fetcher.client import IpeadataClient
 
 
@@ -43,7 +41,6 @@ def test_get_valores_serie() -> None:
 def test_download_resource(tmp_path) -> None:
     client = IpeadataClient()
     target = tmp_path / "test.json"
-    mock_manifest = MagicMock(spec=DownloadManifest)
 
     # Mock the streaming GET and head_or_get calls
     mock_response = MagicMock()
@@ -59,7 +56,9 @@ def test_download_resource(tmp_path) -> None:
     mock_stream_cm.__enter__ = MagicMock(return_value=mock_response)
     mock_stream_cm.__exit__ = MagicMock(return_value=False)
 
-    with patch.object(client.client, "stream", return_value=mock_stream_cm) as mock_stream:
+    with patch.object(
+        client.client, "stream", return_value=mock_stream_cm
+    ) as mock_stream:
         with patch.object(client.client, "head_or_get", return_value=mock_response):
             res = client.download_resource("https://ipeadata/test.json", target)
             assert res == target

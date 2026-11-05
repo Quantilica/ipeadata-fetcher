@@ -203,7 +203,8 @@ def list_series_by_base(
 
 # Compatibilidade: catálogo padrão usa apenas as 18 séries core.
 # Para sincronização completa, use `list_all_series()` ou `list_series_by_base()`.
-# "all" incluído para que `resolve_groups` o reconheça; as entradas vêm de `list_all_series()`.
+# "all" incluído para que `resolve_groups` o reconheça; as entradas vêm de
+# `list_all_series()`.
 GROUPS: dict[str, dict[str, Any]] = _core_groups()
 GROUPS["all"] = {"name": "Todas as séries do Ipeadata (exaustivo)", "entries": []}
 
