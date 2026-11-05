@@ -90,7 +90,7 @@ def test_somente_ativas_filters_inactive(monkeypatch: pytest.MonkeyPatch) -> Non
     assert ativas == {"A", "X", "S", "L"}
     macro = list_datasets("macro_all", somente_ativas=True)
     assert {e["id"] for e in macro} == {"A"}
-    # grupos core não têm SERSTATUS: continuam inteiros
-    assert len(list_datasets("macro", somente_ativas=True)) == len(
-        list_datasets("macro")
+    # dimensões não têm SERSTATUS: continuam inteiras
+    assert len(list_datasets("dimensoes", somente_ativas=True)) == len(
+        list_datasets("dimensoes")
     )

@@ -203,25 +203,34 @@ def list_series_by_base(
     return _only_active(_series_to_entries(filtered), somente_ativas)
 
 
-# Compatibilidade: catálogo padrão usa apenas as 18 séries core.
-# Para sincronização completa, use `list_all_series()` ou `list_series_by_base()`.
-# "all" incluído para que `resolve_groups` o reconheça; as entradas vêm de
-# `list_all_series()`.
-GROUPS: dict[str, dict[str, Any]] = _core_groups()
-GROUPS["all"] = {"name": "Todas as séries do Ipeadata (exaustivo)", "entries": []}
+# Catálogo padrão = todas as séries + dimensões. Os 18 "core" deixaram de ser
+# um grupo separado porque eram um subconjunto de `all` — mantê-los duplicava
+# séries no `sync` sem filtro.
+GROUPS: dict[str, dict[str, Any]] = {
+    "all": {
+        "name": "Todas as séries do Ipeadata (exaustivo)",
+        "entries": [],
+    },
+    "dimensoes": GroupInfo(
+        name="Dimensões e Metadados do Ipeadata",
+        entries=_build_dimensoes_entries(),
+    ).to_dict(),
+}
 
 GROUP_ALIASES: dict[str, str] = {
-    "padrao": "macro",
-    "macroeconomico": "macro",
-    "sociais": "social",
-    "regioes": "regional",
-    "metadados": "dimensoes",
-    "todas": "all",  # especial: todas as séries
-    # Grupos dinâmicos (todas as séries de uma base): não estão em GROUPS porque
-    # exigem consulta ao OData; entram como alias para valer em `sync`/`list`.
+    "padrao": "all",
+    "todas": "all",
     "all": "all",
+    "metadados": "dimensoes",
+    # Aliases de base: agora apontam para o conjunto completo da base.
+    "macro": "macro_all",
+    "macroeconomico": "macro_all",
     "macro_all": "macro_all",
+    "social": "social_all",
+    "sociais": "social_all",
     "social_all": "social_all",
+    "regional": "regional_all",
+    "regioes": "regional_all",
     "regional_all": "regional_all",
 }
 

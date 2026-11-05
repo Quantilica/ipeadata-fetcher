@@ -14,7 +14,7 @@ def test_cli_list() -> None:
     runner = CliRunner()
     result = runner.invoke(app, ["list"])
     assert result.exit_code == 0
-    assert "macro" in result.output
+    assert "all" in result.output
     assert "PRECOS_IPCAG" in result.output
 
 

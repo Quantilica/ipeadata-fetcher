@@ -261,19 +261,8 @@ def _backfill_command(
             s for s in all_series if (s.get("FNTSIGLA") or s.get("FONTE")) == source
         ]
 
-    # Default: only core series when no explicit filters
-    if not (regional or base or theme is not None or source or all_bases):
-        from ipeadata_fetcher.catalog import (
-            CORE_MACRO_SERIES,
-            CORE_REGIONAL_SERIES,
-            CORE_SOCIAL_SERIES,
-        )
-
-        core_codes = {
-            c[0] for c in CORE_MACRO_SERIES + CORE_SOCIAL_SERIES + CORE_REGIONAL_SERIES
-        }
-        all_series = [s for s in all_series if s.get("SERCODIGO") in core_codes]
-
+    # Sem filtros explícitos: todas as séries (exaustivo). `--all` fica
+    # redundante e é mantido só por compatibilidade.
     all_series = [s for s in all_series if "SERCODIGO" in s]
     if somente_ativas:
         all_series = [s for s in all_series if is_ativa(s.get("SERSTATUS"))]
