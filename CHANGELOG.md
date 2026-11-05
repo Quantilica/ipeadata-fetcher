@@ -17,11 +17,6 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 - `backfill`: o estado `_seratualizacao.json` ficava incompleto quando um checkpoint falhava. Na carga de 04/11, o disco de dados sumiu por alguns minutos (BTRFS `emergency shutdown`, `EIO`); a gravação do checkpoint levantou `OSError` dentro do laço, e o pool ainda baixou as ~2.900 séries já enfileiradas sem gravar o estado de novo. Resultado: 950 séries no estado em vez de ~4.100, e o resumo final nunca saiu. Agora a falha de um checkpoint vira aviso e a gravação é tentada de novo no checkpoint seguinte. Uma interrupção cancela o que falta baixar e grava o estado parcial. A gravação final continua obrigatória.
 - `save_state` une o estado em memória ao que está em disco, por código, e no conflito vence a `SERATUALIZACAO` mais recente. A troca é atômica, sob um lock curto (`.save.lock`), com arquivo temporário exclusivo de cada gravador. Dois gravadores simultâneos não perdem as chaves um do outro.
 - As 4 dimensões (`metadados`, `temas`, `territorios`, `paises`) eram rebaixadas todo dia: os endpoints não têm data de versão (`HEAD` 404, sem `Last-Modified`) e o caminho caía na data de hoje. Agora a entrada aceita o campo `fixed_stamp` (`AAAAMMDD`), que `DataRepository.path_for_entry` aplica antes de qualquer data. As dimensões usam `20261105` e passam a ficar em `dimensoes/<id>@20261105.json`. **Trade-off:** quando uma dimensão muda, o arquivo é substituído no mesmo caminho e não ganha uma versão por dia; o ingest guarda cada conteúdo (sha256) como nova versão do mesmo `original_path`, e o plano Postgres só a rebaixa quando a última versão passa da idade máxima (`pg-stale`). A data é a da última versão diária já ingerida, porque uma data mais antiga (por exemplo `19700101`) perderia para `@20261105` no `select_current` do lake e o lake leria a cópia antiga para sempre. As séries continuam versionadas por `SERATUALIZACAO`.
-- Sem o extra `analysis`, o comando `convert` termina com código 1 e a instrução de instalação (`quantilica install ipeadata --extra analysis`), sem traceback.
-
-### Alterado
-- O nome-base dos arquivos brutos vem de `file_key` do `quantilica-core`, com resultado idêntico no lake.
-- O comando `backfill` escreve pelo console do SDK, sem `print()`.
 
 ## [0.2.0] - 2026-11-04
 
@@ -29,6 +24,10 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 - `backfill` incremental por `SERATUALIZACAO`: o estado (`SERCODIGO -> SERATUALIZACAO` da última carga válida) fica em `series/_seratualizacao.json`; `--resume` (padrão) só rebaixa séries cuja data mudou (série sem data é sempre rebaixada) e `--restart` rebaixa tudo. Antes o `--resume` só pulava arquivo do mesmo dia, então cada rodada rebaixava as ~4.000 séries.
 - `backfill` em paralelo: `--workers` (padrão 3, o valor da carga regional de 11 GB) com pool limitado; `IpeadataClient(workers=N)` aplica `HostPolicy` ao host do OData (`max_concurrency=N`, `min_interval` 0,25 s, `deadline` 900 s).
 - `backfill`: série vazia (`value: []`), resposta inválida e falha de rede são erros contados no resumo (o arquivo vazio é descartado, a série fica fora do estado e é tentada de novo); o comando sai com código 1 se houver algum. Atenção: séries legitimamente sem valores (há ~2.300 com `SERSTATUS != A`) também contam como erro.
+
+### Alterado
+- O nome-base dos arquivos brutos vem de `file_key` do `quantilica-core`, com resultado idêntico no lake.
+- O comando `backfill` escreve pelo console do SDK, sem `print()`.
 
 ### Corrigido
 - `sync todas --dry-run` estourava `ValueError: Grupo desconhecido: 'a'` e
@@ -48,6 +47,7 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
   partições antigas.
 - Testes de rede ficam atrás de `@pytest.mark.network` (fora do `pytest -q`);
   `test_list_datasets_by_group` não acessa mais o OData (levava ~60 s).
+- Sem o extra `analysis`, o comando `convert` termina com código 1 e a instrução de instalação (`quantilica install ipeadata --extra analysis`), sem traceback.
 
 ## [0.1.0] - 2026-11-01
 
