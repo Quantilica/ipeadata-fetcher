@@ -231,3 +231,123 @@ def test_backfill_somente_ativas(monkeypatch, tmp_path) -> None:
     )
     assert result.exit_code == 0, result.output
     assert len(baixadas) == 1 and "SERIE_ATIVA" in baixadas[0]
+
+
+# --- séries inativas: baixadas só na primeira vez -------------------------------
+
+
+def _entradas_por_status(monkeypatch) -> dict[str, dict]:
+    monkeypatch.setattr(catalog, "_fetch_all_series", _series_com_status)
+    return {e["id"]: e for e in catalog.list_datasets("todas")}
+
+
+def test_inativa_nova_e_baixada(monkeypatch, tmp_path) -> None:
+    from ipeadata_fetcher.plugin import _ipeadata_check_entry, inativa_ja_baixada
+
+    inativa = _entradas_por_status(monkeypatch)["SERIE_INATIVA"]
+    assert inativa["ativa"] is False
+    assert not inativa_ja_baixada(inativa, tmp_path)
+    assert _ipeadata_check_entry(inativa, tmp_path).action == "download"
+
+
+def test_inativa_existente_pula_mesmo_com_seratualizacao_nova(
+    monkeypatch, tmp_path
+) -> None:
+    from ipeadata_fetcher.plugin import (
+        _ipeadata_check_entry,
+        inativa_ja_baixada,
+        path_builder,
+    )
+
+    inativa = _entradas_por_status(monkeypatch)["SERIE_INATIVA"]
+    # versão antiga no disco (SERATUALIZACAO diferente da do catálogo)
+    antigo = dict(inativa, seratualizacao="2001-01-01T00:00:00")
+    arq = path_builder(tmp_path, antigo, None)
+    arq.parent.mkdir(parents=True, exist_ok=True)
+    arq.write_text("{}")
+    assert path_builder(tmp_path, inativa, None) != arq
+    assert inativa_ja_baixada(inativa, tmp_path)
+    item = _ipeadata_check_entry(inativa, tmp_path)
+    assert item.action == "skip-up-to-date" and item.reason == "inativa-baixada"
+
+
+def test_inativa_so_com_sidecar_ou_estado_pula(monkeypatch, tmp_path) -> None:
+    from ipeadata_fetcher.plugin import inativa_ja_baixada, path_builder
+
+    inativa = _entradas_por_status(monkeypatch)["SERIE_INATIVA"]
+    assert not inativa_ja_baixada(inativa, tmp_path)
+    estado = tmp_path / "series" / "_seratualizacao.json"
+    estado.parent.mkdir(parents=True)
+    estado.write_text('{"SERIE_INATIVA": "2020-01-01T00:00:00"}')
+    assert inativa_ja_baixada(inativa, tmp_path)
+    estado.unlink()
+    sidecar = path_builder(tmp_path, inativa, None)
+    sidecar = sidecar.with_name(sidecar.name + ".manifest.json")
+    sidecar.parent.mkdir(parents=True, exist_ok=True)
+    sidecar.write_text("{}")
+    assert inativa_ja_baixada(inativa, tmp_path)
+
+
+def test_ativa_segue_a_politica_atual(monkeypatch, tmp_path) -> None:
+    from ipeadata_fetcher.plugin import (
+        _ipeadata_check_entry,
+        inativa_ja_baixada,
+        path_builder,
+    )
+
+    ativa = _entradas_por_status(monkeypatch)["SERIE_ATIVA"]
+    assert not inativa_ja_baixada(ativa, tmp_path)
+    # versão antiga no disco: ativa com SERATUALIZACAO nova continua "download"
+    antigo = dict(ativa, seratualizacao="2001-01-01T00:00:00")
+    arq = path_builder(tmp_path, antigo, None)
+    arq.parent.mkdir(parents=True, exist_ok=True)
+    arq.write_text("{}")
+    assert _ipeadata_check_entry(ativa, tmp_path).action == "download"
+    # versão atual no disco: pula
+    atual = path_builder(tmp_path, ativa, None)
+    atual.write_text("{}")
+    assert _ipeadata_check_entry(ativa, tmp_path).action == "skip-up-to-date"
+
+
+def test_sync_pula_inativa_existente_e_force_rebaixa(monkeypatch, tmp_path) -> None:
+    from ipeadata_fetcher import plugin
+
+    entradas = _entradas_por_status(monkeypatch)
+    inativa = entradas["SERIE_INATIVA"]
+    arq = plugin.path_builder(tmp_path, inativa, None)
+    arq.parent.mkdir(parents=True, exist_ok=True)
+    arq.write_text("{}")
+
+    recebidas: list[list[str]] = []
+
+    def fake_sdk(entries, output_dir, workers=4, *, force=False):
+        recebidas.append([e["id"] for e in entries])
+        return len(entries), len(entries), []
+
+    monkeypatch.setattr(plugin, "_sdk_download_datasets", fake_sdk)
+    todas = list(entradas.values())
+    plugin._download_datasets(todas, tmp_path)
+    assert "SERIE_INATIVA" not in recebidas[-1] and "SERIE_ATIVA" in recebidas[-1]
+    plugin._download_datasets(todas, tmp_path, force=True)
+    assert "SERIE_INATIVA" in recebidas[-1]
+    # inativa nunca baixada entra
+    outro = tmp_path / "vazio"
+    plugin._download_datasets(todas, outro)
+    assert "SERIE_INATIVA" in recebidas[-1]
+
+
+def test_backfill_all_continua_baixando_inativas(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(catalog, "_fetch_all_series", _series_com_status)
+    from ipeadata_fetcher.client import IpeadataClient
+
+    baixadas: list[str] = []
+
+    def fake_download(self, url, dest, *, manifest_path=None):
+        baixadas.append(url)
+        Path(dest).parent.mkdir(parents=True, exist_ok=True)
+        Path(dest).write_text('{"value": [{"VALDATA": "2024-01-01", "VALVALOR": 1}]}')
+
+    monkeypatch.setattr(IpeadataClient, "download_resource", fake_download)
+    result = CliRunner().invoke(app, ["backfill", "--all", "-o", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    assert any("SERIE_INATIVA" in u for u in baixadas)

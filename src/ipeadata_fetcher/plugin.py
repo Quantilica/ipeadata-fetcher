@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextvars
 import datetime as dt
 import functools
+import glob
 import inspect
 import os
 import typing
@@ -16,7 +17,13 @@ from quantilica.cli.sdk import CheckPlanItem, FetcherApp, make_resolve_groups
 from quantilica.cli.ui import get_console
 from quantilica.core.sync import FreshnessPolicy
 
-from .backfill import StateLockedError, rebuild_state, run_backfill
+from .backfill import (
+    STATE_NAME,
+    StateLockedError,
+    load_state,
+    rebuild_state,
+    run_backfill,
+)
 from .catalog import GROUP_ALIASES, GROUPS, is_ativa
 from .catalog import list_datasets as _catalog_list_datasets
 from .client import IpeadataClient
@@ -66,6 +73,43 @@ def path_builder(
     return DataRepository(output_dir).path_for_entry(entry, last_modified=stamp)
 
 
+@functools.lru_cache(maxsize=4)
+def _load_state_cached(path: str, mtime_ns: int, size: int) -> dict[str, str]:
+    return load_state(Path(path))
+
+
+def _state_of(output_dir: Path) -> dict[str, str]:
+    """Estado do ``backfill``, relido só quando o arquivo muda."""
+    path = Path(output_dir) / "series" / STATE_NAME
+    try:
+        st = path.stat()
+    except OSError:
+        return {}
+    return _load_state_cached(str(path), st.st_mtime_ns, st.st_size)
+
+
+def inativa_ja_baixada(entry: dict[str, Any], output_dir: Path) -> bool:
+    """Série inativa (``SERSTATUS != A``) que já foi baixada alguma vez.
+
+    Série inativa não muda mais: baixa-se uma vez e o ``sync``/``check`` não a
+    rebaixam, mesmo que a ``SERATUALIZACAO`` do catálogo mude. "Já baixada" é
+    qualquer versão local (``<grupo>/<SERCODIGO>@*.json`` ou o sidecar
+    ``.manifest.json`` dela) ou a presença no estado do ``backfill``
+    (``series/_seratualizacao.json``). Série ativa e entrada sem ``ativa``
+    (dimensões) nunca entram aqui.
+    """
+    if entry.get("ativa", True):
+        return False
+    code = str(entry.get("id", ""))
+    if not code:
+        return False
+    group_dir = Path(output_dir) / str(entry.get("group", "default"))
+    pattern = glob.escape(code) + "@*"
+    if any(group_dir.glob(pattern)):
+        return True
+    return code in _state_of(output_dir)
+
+
 fetcher = FetcherApp(
     name="ipeadata",
     help="Séries econômicas, sociais e regionais do Ipeadata",
@@ -91,6 +135,8 @@ def _ipeadata_check_entry(entry: dict[str, Any], output_dir: Path) -> CheckPlanI
     local = path_builder(output_dir, entry, None)
     sidecar = local.with_name(local.name + ".manifest.json")
     exists = local.exists() or sidecar.exists()
+    inativa = not exists and inativa_ja_baixada(entry, output_dir)
+    exists = exists or inativa
     return CheckPlanItem(
         dataset=dataset,
         id=eid,
@@ -102,12 +148,39 @@ def _ipeadata_check_entry(entry: dict[str, Any], output_dir: Path) -> CheckPlanI
         remote_size=None,
         local_exists=exists,
         action="skip-up-to-date" if exists else "download",
-        reason="local-exists" if exists else "not-probed",
+        reason=(
+            "inativa-baixada" if inativa else "local-exists" if exists else "not-probed"
+        ),
         entry=dict(entry),
     )
 
 
 fetcher.check_entry = _ipeadata_check_entry  # type: ignore[method-assign]
+
+_sdk_download_datasets = fetcher.download_datasets
+
+
+def _download_datasets(
+    entries: list[dict[str, Any]],
+    output_dir: Path,
+    workers: int = 4,
+    *,
+    force: bool = False,
+) -> tuple[int, int, list[tuple[str, str]]]:
+    """``sync``: séries inativas já baixadas ficam de fora (``--force`` rebaixa)."""
+    if not force:
+        pendentes = [e for e in entries if not inativa_ja_baixada(e, output_dir)]
+        puladas = len(entries) - len(pendentes)
+        if puladas:
+            get_console().print(
+                f"[dim]{puladas} série(s) inativa(s) já baixada(s): puladas "
+                "(--force rebaixa).[/dim]"
+            )
+        entries = pendentes
+    return _sdk_download_datasets(entries, output_dir, workers, force=force)
+
+
+fetcher.download_datasets = _download_datasets  # type: ignore[method-assign]
 
 
 def convert(
@@ -202,7 +275,9 @@ _backfill_options = {
 
 @fetcher.app.command(
     name="backfill",
-    help="Carga histórica exaustiva de séries do Ipeadata (JSON)",
+    help="Carga histórica exaustiva de séries do Ipeadata (JSON). Diferente do "
+    "sync, trata as séries inativas como as demais (use --somente-ativas para "
+    "excluí-las); o sync só baixa uma inativa na primeira vez",
 )
 def _backfill_command(
     regional: bool = _backfill_options["regional"],
