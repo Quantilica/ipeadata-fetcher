@@ -22,6 +22,11 @@ class DatasetEntry:
     quarter: int | None = None
     month: int | None = None
     slug: str | None = None
+    # Carimbo ``AAAAMMDD`` fixo no nome do arquivo. Para recursos sem data de
+    # versão na fonte (sem ``Last-Modified``, ``HEAD`` 404): sem ele o caminho
+    # cairia na data de hoje e o recurso seria rebaixado todo dia. O arquivo é
+    # substituído no mesmo caminho quando muda (o ingest versiona por sha256).
+    fixed_stamp: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert entry to dict."""
@@ -50,6 +55,7 @@ def static_dataset(
     name: str,
     url: str,
     ext: str = "csv",
+    fixed_stamp: str | None = None,
 ) -> DatasetEntry:
     """Construct a static (single-file) dataset entry."""
     return DatasetEntry(
@@ -59,6 +65,7 @@ def static_dataset(
         url=url,
         ext=ext,
         group=group,
+        fixed_stamp=fixed_stamp,
     )
 
 

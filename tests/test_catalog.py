@@ -94,3 +94,75 @@ def test_somente_ativas_filters_inactive(monkeypatch: pytest.MonkeyPatch) -> Non
     assert len(list_datasets("dimensoes", somente_ativas=True)) == len(
         list_datasets("dimensoes")
     )
+
+
+# --- Dimensões com caminho estável -------------------------------------------
+
+
+def _dimensoes() -> list[dict]:
+    from ipeadata_fetcher.catalog import list_datasets
+
+    return list_datasets("dimensoes")
+
+
+def test_dimensoes_tem_caminho_estavel_entre_dias(monkeypatch, tmp_path) -> None:
+    import datetime as dt
+
+    from ipeadata_fetcher import storage
+    from ipeadata_fetcher.plugin import path_builder
+
+    class FrozenDate(dt.date):
+        current = dt.date(2026, 11, 6)
+
+        @classmethod
+        def today(cls):
+            return cls.current
+
+    monkeypatch.setattr(storage.dt, "date", FrozenDate)
+    entries = _dimensoes()
+    assert {e["id"] for e in entries} == {"metadados", "temas", "territorios", "paises"}
+    dia1 = [path_builder(tmp_path, e, None) for e in entries]
+    FrozenDate.current = dt.date(2026, 12, 25)
+    dia2 = [path_builder(tmp_path, e, None) for e in entries]
+    assert dia1 == dia2
+    assert {p.name for p in dia1} == {
+        "metadados@20261105.json",
+        "temas@20261105.json",
+        "territorios@20261105.json",
+        "paises@20261105.json",
+    }
+    assert all(p.parent == tmp_path / "dimensoes" for p in dia1)
+
+
+def test_series_continuam_versionadas_por_seratualizacao(tmp_path) -> None:
+    from ipeadata_fetcher.catalog import _series_to_entries
+    from ipeadata_fetcher.plugin import path_builder
+
+    (entry,) = _series_to_entries(
+        [
+            {
+                "SERCODIGO": "X",
+                "BASNOME": "Social",
+                "SERATUALIZACAO": "2026-09-30T10:00:00.000-03:00",
+            }
+        ]
+    )
+    assert entry.get("fixed_stamp") is None
+    assert (
+        path_builder(tmp_path, entry, None) == tmp_path / "social" / "X@20260930.json"
+    )
+
+
+def test_check_das_dimensoes_vira_skip_quando_o_sidecar_existe(tmp_path) -> None:
+    from ipeadata_fetcher.plugin import _ipeadata_check_entry, path_builder
+
+    for entry in _dimensoes():
+        before = _ipeadata_check_entry(entry, tmp_path)
+        assert before.action == "download"
+        local = path_builder(tmp_path, entry, None)
+        local.parent.mkdir(parents=True, exist_ok=True)
+        # o ingest apaga o dado e mantém o sidecar
+        local.with_name(local.name + ".manifest.json").write_text("{}")
+        after = _ipeadata_check_entry(entry, tmp_path)
+        assert after.action == "skip-up-to-date"
+        assert after.local_path == str(local)

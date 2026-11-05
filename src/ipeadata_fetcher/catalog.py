@@ -68,6 +68,16 @@ def _build_entries_for_series(
     ]
 
 
+# Carimbo fixo das 4 dimensões (``dimensoes/<id>@20261105.json``). Os endpoints
+# não têm data de versão (``HEAD`` 404, sem ``Last-Modified``) e o carimbo do dia
+# rebaixava as 4 todo dia. Com o caminho fixo, o arquivo é substituído no mesmo
+# lugar quando a dimensão muda (o ingest guarda cada sha256 como versão do mesmo
+# ``original_path``). A data não é arbitrária: é a última versão diária já
+# ingerida. Uma data mais antiga (ex. 19700101) perderia para ``@20261105`` no
+# ``select_current`` do lake, que leria para sempre a cópia antiga.
+DIMENSOES_STAMP = "20261105"
+
+
 def _build_dimensoes_entries() -> list[DatasetEntry]:
     return [
         static_dataset(
@@ -76,6 +86,7 @@ def _build_dimensoes_entries() -> list[DatasetEntry]:
             name="Catálogo de Metadados Ipeadata",
             url=METADADOS_URL,
             ext="json",
+            fixed_stamp=DIMENSOES_STAMP,
         ),
         static_dataset(
             "dimensoes",
@@ -83,6 +94,7 @@ def _build_dimensoes_entries() -> list[DatasetEntry]:
             name="Tabela de Temas Ipeadata",
             url=TEMAS_URL,
             ext="json",
+            fixed_stamp=DIMENSOES_STAMP,
         ),
         static_dataset(
             "dimensoes",
@@ -90,6 +102,7 @@ def _build_dimensoes_entries() -> list[DatasetEntry]:
             name="Tabela de Territórios Ipeadata",
             url=TERRITORIOS_URL,
             ext="json",
+            fixed_stamp=DIMENSOES_STAMP,
         ),
         static_dataset(
             "dimensoes",
@@ -97,6 +110,7 @@ def _build_dimensoes_entries() -> list[DatasetEntry]:
             name="Tabela de Países Ipeadata",
             url=PAISES_URL,
             ext="json",
+            fixed_stamp=DIMENSOES_STAMP,
         ),
     ]
 

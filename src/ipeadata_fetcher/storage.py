@@ -34,8 +34,14 @@ class DataRepository(BaseDataRepository):
         quarter = entry.get("quarter")
         slug = entry.get("slug")
 
-        # Fallback to today's date when server doesn't provide reliable metadata
-        timestamp = last_modified or dt.date.today()
+        # ``fixed_stamp`` (AAAAMMDD) vence tudo: caminho estável para recursos
+        # sem data de versão. Sem ele, cai na data de hoje quando o servidor
+        # não informa uma data confiável.
+        fixed = entry.get("fixed_stamp")
+        if fixed:
+            timestamp = dt.datetime.strptime(str(fixed), "%Y%m%d").date()
+        else:
+            timestamp = last_modified or dt.date.today()
 
         if year is None:
             filename = stamp_filename(base_id, ext, timestamp)
