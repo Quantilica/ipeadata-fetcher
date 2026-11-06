@@ -6,7 +6,8 @@ num sidecar JSON na pasta de saída; só se rebaixa a série cuja data mudou. S�
 sem data conhecida é sempre rebaixada. Série vazia (``value: []``) é erro contado:
 o arquivo vazio é descartado e a série não entra no estado.
 
-Uma carga segura o lock exclusivo ``<estado>.lock`` (``fcntl.flock``) do começo
+Uma carga segura o lock exclusivo ``<estado>.lock`` (``fcntl.flock``; no Windows,
+``msvcrt.locking`` no primeiro byte) do começo
 ao fim: uma segunda carga na mesma pasta aborta com :class:`StateLockedError`.
 ``save_state`` ainda une o estado em memória ao que está em disco (vence a data
 mais recente), então nenhum gravador apaga chaves de outro.
@@ -17,16 +18,22 @@ from __future__ import annotations
 import concurrent.futures
 import contextlib
 import datetime as dt
-import fcntl
 import json
 import os
 import threading
+import time
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
 from .constants import valores_serie_url
+
+try:  # POSIX
+    import fcntl
+except ImportError:  # Windows
+    fcntl = None  # type: ignore[assignment]
+    import msvcrt
 
 STATE_NAME = "_seratualizacao.json"
 LOCK_SUFFIX = ".lock"  # lock da carga inteira
@@ -85,15 +92,43 @@ def merge_states(base: dict[str, str], new: dict[str, str]) -> dict[str, str]:
     return merged
 
 
+def _lock_fd(fd: int, *, blocking: bool) -> None:
+    """Lock exclusivo em ``fd``; ``BlockingIOError`` se ocupado e não bloqueante.
+
+    No Windows trava o primeiro byte com ``msvcrt.locking``; o modo bloqueante
+    repete ``LK_NBLCK``, porque ``LK_LOCK`` desiste depois de dez tentativas.
+    """
+    if fcntl is not None:
+        fcntl.flock(fd, fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
+        return
+    os.lseek(fd, 0, os.SEEK_SET)
+    while True:
+        try:
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+            return
+        except OSError as exc:
+            if not blocking:
+                raise BlockingIOError(*exc.args) from exc
+            time.sleep(0.1)
+
+
+def _unlock_fd(fd: int) -> None:
+    if fcntl is not None:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        return
+    os.lseek(fd, 0, os.SEEK_SET)
+    msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+
+
 @contextlib.contextmanager
 def _flock(path: Path, *, blocking: bool) -> Iterator[None]:
     fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
+        _lock_fd(fd, blocking=blocking)
         try:
             yield
         finally:
-            fcntl.flock(fd, fcntl.LOCK_UN)
+            _unlock_fd(fd)
     finally:
         os.close(fd)
 
@@ -134,7 +169,7 @@ def state_lock(state_path: Path) -> Iterator[Path]:
     fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o644)
     try:
         try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            _lock_fd(fd, blocking=False)
         except BlockingIOError as exc:
             raise StateLockedError(
                 f"Outra carga do Ipeadata já está em andamento nesta pasta "
@@ -144,7 +179,7 @@ def state_lock(state_path: Path) -> Iterator[Path]:
         try:
             yield lock_path
         finally:
-            fcntl.flock(fd, fcntl.LOCK_UN)
+            _unlock_fd(fd)
     finally:
         os.close(fd)
 

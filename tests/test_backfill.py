@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from ipeadata_fetcher import backfill, catalog
@@ -186,6 +188,37 @@ def test_segunda_carga_com_lock_aborta(tmp_path: Path) -> None:
     # liberado o lock, a carga roda normalmente
     rep = backfill.run_backfill([_meta("A", "1")], api, tmp_path, today=TODAY)
     assert rep.downloaded == ["A"]
+
+
+class _FakeMsvcrt:
+    """``msvcrt.locking`` de mentira: um lock por arquivo (inode), como no Windows."""
+
+    LK_NBLCK, LK_UNLCK = 2, 0
+
+    def __init__(self) -> None:
+        self.held: set[int] = set()
+
+    def locking(self, fd: int, mode: int, nbytes: int) -> None:
+        key = os.fstat(fd).st_ino
+        if mode == self.LK_UNLCK:
+            self.held.discard(key)
+        elif key in self.held:
+            raise OSError(36, "Resource deadlock avoided")
+        else:
+            self.held.add(key)
+
+
+def test_lock_sem_fcntl_usa_msvcrt(monkeypatch, tmp_path: Path) -> None:
+    fake = _FakeMsvcrt()
+    monkeypatch.setattr(backfill, "fcntl", None)
+    monkeypatch.setattr(backfill, "msvcrt", fake, raising=False)
+    state = tmp_path / backfill.STATE_NAME
+    with backfill.state_lock(state):
+        with pytest.raises(backfill.StateLockedError), backfill.state_lock(state):
+            pass  # pragma: no cover - o segundo lock deveria falhar
+    assert fake.held == set()
+    assert backfill.save_state(state, {"A": "1"}) == {"A": "1"}
+    assert fake.held == set()
 
 
 def test_cli_backfill_aborta_com_lock_ocupado(monkeypatch, tmp_path: Path) -> None:
