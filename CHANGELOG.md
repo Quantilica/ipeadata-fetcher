@@ -7,6 +7,8 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+## [0.3.2] - 2026-11-06
+
 ### Corrigido
 
 - O pacote volta a carregar no Windows: o lock da carga histórica (`backfill`) usava `fcntl`, que só existe em POSIX, e o import falhava ao abrir o plugin. No Windows o lock passa a usar `msvcrt.locking`.
