@@ -7,6 +7,8 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+## [0.3.1] - 2026-11-06
+
 ### Corrigido
 
 - A conversão para o lake não falha mais em séries que começam com muitos valores vazios antes do primeiro número: o tipo de cada coluna passa a ser deduzido de todas as linhas.
