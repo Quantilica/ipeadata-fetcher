@@ -179,7 +179,7 @@ class IpeadataLakeConverter:
                 if not items:
                     continue
                 try:
-                    df = pl.DataFrame(items)
+                    df = pl.DataFrame(items, infer_schema_length=None)
                     df = df.rename({c: _norm_col(c) for c in df.columns})
                     if dim_key == "series":
                         df = _with_ativa(df)
@@ -200,7 +200,7 @@ class IpeadataLakeConverter:
                 continue
 
             try:
-                df = pl.DataFrame(items)
+                df = pl.DataFrame(items, infer_schema_length=None)
                 df = df.rename({c: _norm_col(c) for c in df.columns})
 
                 # Check essential columns: sercodigo, valdata, valvalor

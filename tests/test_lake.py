@@ -158,7 +158,9 @@ def _write(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
-def _row(code: str, date: str, value: float, niv: str = "", ter: str = "") -> dict:
+def _row(
+    code: str, date: str, value: float | None, niv: str = "", ter: str = ""
+) -> dict:
     return {
         "SERCODIGO": code,
         "VALDATA": f"{date}T00:00:00-03:00",
@@ -186,6 +188,20 @@ def test_periodicidade_comes_from_metadata(tmp_path: Path) -> None:
     assert (ds / "base=macro" / "periodicidade=anual").is_dir()
     assert (ds / "base=macro" / "periodicidade=diaria").is_dir()
     assert not (ds / "base=macro" / "periodicidade=mensal").exists()
+
+
+def test_valores_nulos_no_inicio_nao_quebram_a_serie(
+    tmp_path: Path,
+) -> None:
+    """Séries antigas começam com centenas de valores nulos antes do primeiro número."""
+    raw = tmp_path / "raw"
+    _write(raw / "dimensoes" / "metadados@20261101.json", META)
+    linhas = [_row("PIB_ANUAL", f"{1800 + i}-01-01", None) for i in range(150)]
+    linhas.append(_row("PIB_ANUAL", "2050-01-01", 18.4837))
+    _write(raw / "macro" / "PIB_ANUAL@20261101.json", {"value": linhas})
+    res = converter.convert(raw, tmp_path / "lake")
+    assert not res.errors
+    assert not check_dataset(tmp_path / "lake" / "ipeadata" / "valores")
 
 
 def test_regional_nivel_is_per_row_and_periodicidade_real(tmp_path: Path) -> None:
