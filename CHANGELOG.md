@@ -7,6 +7,8 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+## [0.3.0] - 2026-11-05
+
 ### Adicionado
 - Séries inativas (`SERSTATUS != A`, ~2.300): decisão de **não excluir, marcar**. Cada entrada do catálogo (`list`, `sync`, `check`) ganha o atributo `ativa` (bool, `SERSTATUS == "A"`; ausente conta como ativa), e a dimensão `series` do lake ganha a coluna booleana `ativa` (o `serstatus` original continua; arquivo de metadados sem `SERSTATUS` gera `ativa = true`). O `sync` padrão continua baixando tudo; `sync`, `check` e `backfill` aceitam `--somente-ativas` para filtrar as inativas. As tabelas `valores` e `valores_regional` não mudam de esquema (junte com `series` por `sercodigo`). `catalog.list_datasets()`, `list_all_series()` e `list_series_by_base()` ganham o parâmetro `somente_ativas` (padrão `False`).
 

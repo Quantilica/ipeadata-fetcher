@@ -1,6 +1,6 @@
 [project]
 name = "ipeadata-fetcher"
-version = "0.2.0"
+version = "0.3.0"
 description = "Coletor e conversor Lake Hive de séries econômicas, sociais e regionais do Ipeadata"
 readme = "README.md"
 authors = [
