@@ -7,6 +7,8 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+## [0.4.0] - 2026-11-10
+
 ### Corrigido
 - A conversão de `valores` e `valores_regional` não perde mais dados quando a mesma série existe em mais de uma pasta do bruto (`macro/` e `series/`, `series/` e `regional/`, `series/` e `social/`). As cópias iam para o mesmo destino no lake (`<SERCODIGO>.parquet`) e a última pasta em ordem alfabética sobrescrevia as outras, mesmo sendo a mais antiga; o resultado ainda contava uma conversão por cópia. Agora vale só a cópia de carimbo mais recente, de qualquer pasta, e a conversão conta uma por série.
 - Séries sem nenhum valor (lista `value` vazia) e respostas sem `VALDATA`/`VALVALOR` deixam de ser descartadas em silêncio: o conversor registra um aviso no log e as conta em `skipped`.
