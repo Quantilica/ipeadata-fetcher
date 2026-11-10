@@ -364,3 +364,52 @@ def test_sidecar_de_manifesto_nao_conta_como_serie_pulada(tmp_path: Path) -> Non
     assert not res.errors, res.errors
     assert res.skipped == 0
     assert res.converted == 2
+
+
+def test_arquivo_de_estado_do_backfill_nao_e_serie(tmp_path: Path, caplog) -> None:
+    raw = tmp_path / "raw"
+    _write(raw / "dimensoes" / "metadados@20261101.json", META)
+    _write(raw / "series" / "_seratualizacao.json", {"PIB_ANUAL": "2026-11-01"})
+    _write(
+        raw / "macro" / "PIB_ANUAL@20261106.json",
+        {"value": [_row("PIB_ANUAL", "2020-01-01", 1.0)]},
+    )
+    with caplog.at_level("WARNING"):
+        res = converter.convert(raw, tmp_path / "lake")
+    assert not res.errors, res.errors
+    assert (res.converted, res.skipped) == (2, 0)
+    assert "_seratualizacao" not in caplog.text
+
+
+def test_destino_nao_muda_quando_a_copia_vencedora_troca_de_pasta(
+    tmp_path: Path,
+) -> None:
+    """Série em ``series/`` e ``regional/``: sempre o mesmo dataset e partição."""
+    raw = tmp_path / "raw"
+    lake = tmp_path / "lake"
+    _write(raw / "dimensoes" / "metadados@20261101.json", META)
+    # sem NIVNOME nas linhas: só a pasta indica que a série é regional
+    _write(
+        raw / "regional" / "ADH_IDHM@20261101.json",
+        {"value": [_row("ADH_IDHM", "1991-01-01", 0.5)]},
+    )
+    _write(
+        raw / "series" / "ADH_IDHM@20261102.json",
+        {"value": [_row("ADH_IDHM", "1991-01-01", 0.5)]},
+    )
+    assert not converter.convert(raw, lake).errors
+    # a cópia mais nova passa a ser a de regional/
+    _write(
+        raw / "regional" / "ADH_IDHM@20261105.json",
+        {
+            "value": [
+                _row("ADH_IDHM", "1991-01-01", 0.5),
+                _row("ADH_IDHM", "2000-01-01", 0.6),
+            ]
+        },
+    )
+    assert not converter.convert(raw, lake).errors
+    arquivos = list((lake / "ipeadata").glob("valores*/**/ADH_IDHM.parquet"))
+    assert len(arquivos) == 1
+    assert "valores_regional" in arquivos[0].parts
+    assert pl.read_parquet(arquivos[0]).height == 2

@@ -207,15 +207,23 @@ class IpeadataLakeConverter:
         all_raw_files = [
             f
             for f in input_path.rglob("*.json")
-            if f.is_file() and not f.name.endswith(MANIFEST_SIDECAR_SUFFIX)
+            if f.is_file()
+            and not f.name.endswith(MANIFEST_SIDECAR_SUFFIX)
+            # estado interno do fetcher (``_seratualizacao.json``), não é dado
+            and not f.name.startswith("_")
         ]
         active_files = select_current(all_raw_files)
         # A mesma série em mais de uma pasta tem um só destino no lake: fica a
         # cópia mais recente.
         dimensoes = [f for f in active_files if file_key(f).lower() in _DIMENSOES_BRUTO]
-        valores_brutos, repetidos = _mais_recente_entre_pastas(
-            [f for f in active_files if f not in dimensoes]
-        )
+        candidatos_valores = [f for f in active_files if f not in dimensoes]
+        # Pastas em que cada série existe: o destino no lake depende delas e não
+        # da pasta da cópia que venceu, para não mudar de partição (e duplicar
+        # linhas) quando a cópia mais nova passa de uma pasta para outra.
+        pastas_da_serie: dict[str, set[str]] = {}
+        for f in candidatos_valores:
+            pastas_da_serie.setdefault(file_key(f), set()).add(f.parent.name.lower())
+        valores_brutos, repetidos = _mais_recente_entre_pastas(candidatos_valores)
         for repetido in repetidos:
             logger.info(
                 "Ipeadata %s/%s: há cópia mais recente da série em outra pasta; "
@@ -311,11 +319,11 @@ class IpeadataLakeConverter:
                         df = df.with_columns(pl.lit(None).cast(pl.Utf8).alias(col))
 
                 # Determine whether regional or macro/social:
-                parent_group = raw_file.parent.name.lower()
+                pastas = pastas_da_serie.get(file_key(raw_file), set())
                 has_nivel = df.select(
                     pl.col("nivnome").cast(pl.Utf8).is_not_null().any()
                 ).item()
-                is_regional = parent_group == "regional" or bool(has_nivel)
+                is_regional = "regional" in pastas or bool(has_nivel)
 
                 # Periodicidade vem dos metadados da serie, nunca fixa.
                 sercodigo = file_key(raw_file)
@@ -363,7 +371,7 @@ class IpeadataLakeConverter:
                         )
                         res.converted += 1
                 elif not is_regional and "valores" in writers:
-                    base = "social" if parent_group == "social" else "macro"
+                    base = "social" if "social" in pastas else "macro"
                     df = df.with_columns(
                         pl.lit(base).alias("base"),
                         pl.lit(periodicidade, dtype=pl.Utf8).alias("periodicidade"),
