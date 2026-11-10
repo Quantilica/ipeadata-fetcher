@@ -7,7 +7,7 @@ import logging
 import re
 import unicodedata
 from collections.abc import Sequence
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 try:
@@ -19,6 +19,7 @@ try:
         partition_types_for,
         select_current,
     )
+    from quantilica.core.manifests import MANIFEST_SIDECAR_SUFFIX
 except ImportError as exc:
     raise ImportError(
         "ipeadata_fetcher.lake requer o extra 'analysis': "
@@ -29,6 +30,7 @@ except ImportError as exc:
 logger = logging.getLogger(__name__)
 
 SOURCE_ID = "ipeadata"
+_DIMENSOES_BRUTO = ("metadados", "series", "temas", "territorios", "paises")
 DATASETS = ["series", "temas", "territorios", "paises", "valores", "valores_regional"]
 
 
@@ -76,6 +78,51 @@ def _periodicidades(meta_items: list[dict[str, Any]]) -> dict[str, str | None]:
                 item.get("PERNOME") or item.get("SERPERIODICIDADE"), lower=True
             )
     return result
+
+
+#: Pastas do bruto que guardam valores; em empate de carimbo vence a primeira.
+_PRIORIDADE_PASTAS = ("regional", "social", "macro", "series")
+
+
+def _mais_recente_entre_pastas(files: Sequence[Path]) -> tuple[list[Path], list[Path]]:
+    """Uma só cópia por série, mesmo que ela exista em mais de uma pasta.
+
+    ``select_current`` escolhe a versão mais recente dentro de cada pasta, mas a
+    mesma série (``SERCODIGO``) pode ter arquivo em ``macro/`` e ``series/``, ou
+    em ``series/``, ``regional/`` e ``social/``. Todas as cópias vão para o mesmo
+    destino do lake (``<SERCODIGO>.parquet``), e a última pasta em ordem
+    alfabética sobrescrevia as outras, mesmo sendo a mais antiga. Aqui vence o
+    carimbo (``@AAAAMMDD[THHMMSS]``) mais recente; sem carimbo, a cópia perde
+    de qualquer outra. Devolve ``(mantidos, descartados)``.
+    """
+    por_nome = {}
+    for f in files:
+        por_nome.setdefault(f.name, []).append(f)
+    # ``select_current`` ordena as versões pelo carimbo do nome: passa só os
+    # nomes, numa pasta única, para compará-las entre as pastas.
+    vencedores = {
+        PurePosixPath(n).name
+        for n in select_current([PurePosixPath("v") / nome for nome in por_nome])
+    }
+    por_chave: dict[str, list[Path]] = {}
+    for nome in vencedores:
+        for f in por_nome[nome]:
+            por_chave.setdefault(file_key(f), []).append(f)
+
+    def prioridade(f: Path) -> tuple[int, str]:
+        pasta = f.parent.name.lower()
+        rank = (
+            _PRIORIDADE_PASTAS.index(pasta)
+            if pasta in _PRIORIDADE_PASTAS
+            else len(_PRIORIDADE_PASTAS)
+        )
+        return rank, str(f)
+
+    mantidos = {min(fs, key=prioridade) for fs in por_chave.values()}
+    return (
+        [f for f in files if f in mantidos],
+        [f for f in files if f not in mantidos],
+    )
 
 
 def _with_ativa(df: pl.DataFrame) -> pl.DataFrame:
@@ -156,8 +203,27 @@ class IpeadataLakeConverter:
             )
 
         # Find current raw files
-        all_raw_files = [f for f in input_path.rglob("*.json") if f.is_file()]
+        # Os sidecars ``.manifest.json`` acompanham o bruto e não são dados.
+        all_raw_files = [
+            f
+            for f in input_path.rglob("*.json")
+            if f.is_file() and not f.name.endswith(MANIFEST_SIDECAR_SUFFIX)
+        ]
         active_files = select_current(all_raw_files)
+        # A mesma série em mais de uma pasta tem um só destino no lake: fica a
+        # cópia mais recente.
+        dimensoes = [f for f in active_files if file_key(f).lower() in _DIMENSOES_BRUTO]
+        valores_brutos, repetidos = _mais_recente_entre_pastas(
+            [f for f in active_files if f not in dimensoes]
+        )
+        for repetido in repetidos:
+            logger.info(
+                "Ipeadata %s/%s: há cópia mais recente da série em outra pasta; "
+                "ignorada",
+                repetido.parent.name,
+                repetido.name,
+            )
+        active_files = sorted(dimensoes + valores_brutos)
 
         # Periodicidade real de cada serie, do arquivo de metadados (PERNOME).
         periodicidades: dict[str, str | None] = {}
@@ -197,6 +263,13 @@ class IpeadataLakeConverter:
 
             items = _read_json_items(raw_file)
             if not items:
+                logger.warning(
+                    "Ipeadata %s/%s: série sem nenhum valor (lista vazia); "
+                    "nada a converter",
+                    raw_file.parent.name,
+                    raw_file.name,
+                )
+                res.skipped += 1
                 continue
 
             try:
@@ -205,6 +278,13 @@ class IpeadataLakeConverter:
 
                 # Check essential columns: sercodigo, valdata, valvalor
                 if "valdata" not in df.columns or "valvalor" not in df.columns:
+                    logger.warning(
+                        "Ipeadata %s/%s: resposta sem VALDATA e VALVALOR; "
+                        "série ignorada",
+                        raw_file.parent.name,
+                        raw_file.name,
+                    )
+                    res.skipped += 1
                     continue
 
                 # Normalizations:

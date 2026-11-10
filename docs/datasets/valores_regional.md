@@ -56,7 +56,7 @@ Valores das séries regionais (por exemplo, agências bancárias e despesas dos 
 ## Origem e coleta
 
 - Mesma coleta de `valores`: um JSON por série da função `ValoresSerie`, nas pastas `regional/`, `social/` e também em `series/` quando a série tem território.
-- Arquivos no Drive em 2026-11-10: 166 códigos em `regional/` (16 com mais de uma versão), 2 em `social/` e 90 códigos de `series/` que também estão em `regional/`.
+- Arquivos no bruto em 2026-11-10: 166 códigos em `regional/` (16 com mais de uma versão), 2 em `social/` e 90 códigos de `series/` que também estão em `regional/`.
 - O conversor decide que a série é regional quando a pasta se chama `regional` ou quando alguma linha tem `NIVNOME` preenchido.
 
 ## Conteúdo
@@ -89,7 +89,7 @@ Valores das séries regionais (por exemplo, agências bancárias e despesas dos 
 
 ## Cuidados de uso
 
-- **Cópias de uma série em duas pastas se sobrescrevem** (mesma causa de `valores`): 90 códigos aparecem em `regional/` e `series/`, e 2 em `series/` e `social/` (`PNADCT_PERDESUF` e `PNADCT_TXDSCUPUF`). Para a mesma série e nível, a cópia gravada por último (ordem alfabética das pastas: `series` e `social` depois de `regional`) substitui a outra, mesmo que seja mais antiga. A colisão foi reproduzida com uma série macroeconômica (veja `valores`); nos casos regionais e sociais o efeito vem do mesmo código e não foi reproduzido com dados reais.
+- **Mesma série em mais de uma pasta** (mesma causa de `valores`): 90 códigos aparecem em `regional/` e `series/`, e 2 em `series/` e `social/` (`PNADCT_PERDESUF` e `PNADCT_TXDSCUPUF`). O conversor mantém só a cópia de carimbo mais recente de qualquer pasta. Antes da correção (até a 0.3.2) a última pasta em ordem alfabética substituía as outras mesmo sendo mais antiga: em `ADMISNC`, a cópia de `series/` (448.562 linhas, de 2026-11-04) vencia a de `regional/` (454.175, de 2026-11-05). Se o lake foi gerado por versão anterior, reconverta (veja o `CHANGELOG.md`).
 - **Junte por nível e código.** `tercodigo` sozinho repete entre níveis; use `nivnome` e `tercodigo` com `territorios`.
 - **Nome do nível.** `nivel` (partição) e `nivnome` (coluna) diferem: `Municipios` e `Municípios`.
 - **Escala e unidade por série.** Consulte `series.uninome` e `series.mulnome`.

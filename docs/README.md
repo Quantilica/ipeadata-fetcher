@@ -32,4 +32,4 @@ O termo de Direitos de Uso do Ipeadata (`http://www.ipeadata.gov.br/iframe_direi
 
 | Desde | Mudança | Afeta |
 |---|---|---|
-| — | A mesma série pode ter arquivos em mais de uma pasta do bruto e se sobrescreve no lake (veja os cuidados de `valores`) | `valores`, `valores_regional` |
+| — | A mesma série pode ter arquivos em mais de uma pasta do bruto; o conversor mantém só o de carimbo mais recente (até a 0.3.2, o último em ordem alfabética das pastas substituía os outros; veja os cuidados de `valores`) | `valores`, `valores_regional` |

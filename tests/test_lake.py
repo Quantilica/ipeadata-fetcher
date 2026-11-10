@@ -287,3 +287,80 @@ def test_series_without_serstatus_column_defaults_to_ativa(tmp_path: Path) -> No
     converter.convert(tmp_path / "raw", lake_dir, datasets=["series"])
     df = pl.read_parquet(next((lake_dir / "ipeadata" / "series").rglob("*.parquet")))
     assert df["ativa"].to_list() == [True]
+
+
+def _valores(tmp_path: Path, dataset: str = "valores") -> pl.DataFrame:
+    ds = tmp_path / "lake" / "ipeadata" / dataset
+    return pl.read_parquet(ds / "**" / "*.parquet")
+
+
+def test_mesma_serie_em_duas_pastas_vence_a_mais_recente(tmp_path: Path) -> None:
+    """Cópia nova em ``macro/`` não pode ser sobrescrita pela antiga em ``series/``."""
+    raw = tmp_path / "raw"
+    _write(raw / "dimensoes" / "metadados@20261101.json", META)
+    novas = [_row("PIB_ANUAL", f"20{n:02d}-01-01", float(n)) for n in range(10, 13)]
+    _write(raw / "macro" / "PIB_ANUAL@20261106.json", {"value": novas})
+    _write(raw / "series" / "PIB_ANUAL@20261102.json", {"value": novas[:2]})
+    res = converter.convert(raw, tmp_path / "lake")
+    assert not res.errors, res.errors
+    assert res.converted == 2  # metadados + uma só cópia da série
+    assert _valores(tmp_path).height == 3
+
+
+def test_mesma_serie_em_duas_pastas_vence_a_mais_recente_pasta_ordem_inversa(
+    tmp_path: Path,
+) -> None:
+    raw = tmp_path / "raw"
+    _write(raw / "dimensoes" / "metadados@20261101.json", META)
+    linhas = [_row("PIB_ANUAL", f"20{n:02d}-01-01", float(n)) for n in range(10, 13)]
+    _write(raw / "macro" / "PIB_ANUAL@20261102.json", {"value": linhas[:2]})
+    _write(raw / "series" / "PIB_ANUAL@20261106T101500.json", {"value": linhas})
+    res = converter.convert(raw, tmp_path / "lake")
+    assert not res.errors, res.errors
+    assert res.converted == 2
+    assert _valores(tmp_path).height == 3
+
+
+def test_serie_regional_em_series_e_regional_converte_uma_vez(tmp_path: Path) -> None:
+    raw = tmp_path / "raw"
+    _write(raw / "dimensoes" / "metadados@20261101.json", META)
+    novas = [
+        _row("ADH_IDHM", "1991-01-01", 0.5, "Municípios", "1"),
+        _row("ADH_IDHM", "1991-01-01", 0.6, "Municípios", "2"),
+    ]
+    _write(raw / "regional" / "ADH_IDHM@20261105.json", {"value": novas})
+    _write(raw / "series" / "ADH_IDHM@20261104.json", {"value": novas[:1]})
+    _write(raw / "social" / "ADH_IDHM@20261103.json", {"value": novas[:1]})
+    res = converter.convert(raw, tmp_path / "lake")
+    assert not res.errors, res.errors
+    assert res.converted == 2
+    assert _valores(tmp_path, "valores_regional").height == 2
+
+
+def test_series_vazia_avisa_e_conta_como_pulada(tmp_path: Path, caplog) -> None:
+    raw = tmp_path / "raw"
+    _write(raw / "dimensoes" / "metadados@20261101.json", META)
+    _write(raw / "macro" / "PIB_ANUAL@20261106.json", {"value": []})
+    _write(
+        raw / "macro" / "PRECOS_IPCAG@20261106.json",
+        {"value": [_row("PRECOS_IPCAG", "2020-01-01", 1.0)]},
+    )
+    with caplog.at_level("WARNING"):
+        res = converter.convert(raw, tmp_path / "lake")
+    assert not res.errors, res.errors
+    assert res.skipped == 1
+    assert res.converted == 2
+    assert "PIB_ANUAL@20261106.json" in caplog.text
+    assert "sem nenhum valor" in caplog.text
+
+
+def test_sidecar_de_manifesto_nao_conta_como_serie_pulada(tmp_path: Path) -> None:
+    raw = tmp_path / "raw"
+    _write(raw / "dimensoes" / "metadados@20261101.json", META)
+    arquivo = raw / "macro" / "PRECOS_IPCAG@20261106.json"
+    _write(arquivo, {"value": [_row("PRECOS_IPCAG", "2020-01-01", 1.0)]})
+    _write(arquivo.with_name(arquivo.name + ".manifest.json"), {"sha256": "x"})
+    res = converter.convert(raw, tmp_path / "lake")
+    assert not res.errors, res.errors
+    assert res.skipped == 0
+    assert res.converted == 2

@@ -57,15 +57,15 @@ Os valores das séries macroeconômicas do Ipeadata (câmbio, juros, preços, pr
 
 - O fetcher consulta a função `ValoresSerie(SERCODIGO='<código>')` da API OData v4 do Ipeadata e grava uma resposta JSON por série, com o nome `<SERCODIGO>@AAAAMMDD.json`. As séries estão em duas pastas do bruto: `macro/` (220 códigos em 2026-11-10) e `series/` (3.962 códigos).
 - A pasta `regional/` e `social/` guardam séries regionais e sociais, que vão para `valores_regional`.
-- Cada série pode ter várias versões com carimbos diferentes; o conversor escolhe a mais recente **dentro de cada pasta**.
-- Arquivos de valores no Drive em 2026-11-10: 3.962 códigos em `series/`, 220 em `macro/` (40 com mais de uma versão), 166 em `regional/` e 2 em `social/`.
+- Cada série pode ter várias versões com carimbos diferentes; o conversor escolhe a mais recente. Se a mesma série existe em mais de uma pasta, vale só a cópia de carimbo mais recente, de qualquer pasta (as outras são ignoradas e registradas no log).
+- Arquivos de valores no bruto em 2026-11-10: 3.962 códigos em `series/`, 220 em `macro/` (40 com mais de uma versão), 166 em `regional/` e 2 em `social/`.
 
 ## Conteúdo
 
 - Uma linha por série e data. Na amostra de 7 séries macroeconômicas: 15.370 linhas, 14.476 datas distintas de 1808-08-01 a 2026-11-05, nenhuma chave repetida.
 - Das 15.370 linhas da amostra, 5.600 (36%) têm valor nulo, a maior parte na taxa diária da Anbima (`ANBIMA366_TJTLN12366`).
 - A cobertura de cada série varia: o catálogo não traz a data inicial; ela só se vê nos valores. A menor data observada na amostra (1808) não vale para as demais séries.
-- Três arquivos de `macro/` (`IGP_IGPM`, `INPC_INPC`, `PIB_PIB`; 136 bytes) têm a lista `value` vazia e seus códigos não estão no catálogo; o conversor os ignora sem avisar.
+- Três arquivos de `macro/` (`IGP_IGPM`, `INPC_INPC`, `PIB_PIB`; 136 bytes) têm a lista `value` vazia e seus códigos não estão no catálogo; o conversor os ignora, registra um aviso no log e os conta como pulados (`skipped`).
 
 ## Variáveis
 
@@ -87,11 +87,11 @@ Os valores das séries macroeconômicas do Ipeadata (câmbio, juros, preços, pr
 - Chave natural: (`sercodigo`, `valdata`), sem repetição na amostra.
 - O conversor lê o JSON da série (`ValoresSerie`), renomeia as colunas para minúsculas e acrescenta `data` (os 10 primeiros caracteres de `valdata`, sem deslocamento de fuso) e `valor` (`valvalor` como decimal; o que não converte vira nulo).
 - Textos vazios em `nivnome` e `tercodigo` viram nulo.
-- Séries cuja resposta não tem `VALDATA` e `VALVALOR` são ignoradas sem aviso. Séries vazias também.
+- Séries cuja resposta não tem `VALDATA` e `VALVALOR`, e séries vazias, são ignoradas com um aviso no log e contadas como puladas (`skipped`).
 
 ## Cuidados de uso
 
-- **Cópias de uma série em duas pastas se sobrescrevem.** Em 2026-11-10 havia 120 códigos em `macro/` e `series/`, 90 em `series/` e `regional/` e 2 em `series/` e `social/`. O destino no lake é o mesmo (`<SERCODIGO>.parquet` na mesma partição), e o conversor escolhe a versão mais recente de cada pasta separadamente, não do conjunto; a última a ser gravada (ordem alfabética das pastas) substitui a anterior. Reproduzido com `ABRAS12_INVNR12`: a cópia mais nova de `macro/` tinha 69 linhas (até 2026-09), a mais antiga de `series/` tinha 68 (até 2026-08), e o lake ficou com as 68 e `converted=2`. Nada foi corrigido.
+- **Mesma série em mais de uma pasta.** Em 2026-11-10 havia mais de cem códigos em `macro/` e `series/`, 90 em `series/` e `regional/` e 2 em `series/` e `social/`. Todas as cópias iriam para o mesmo destino (`<SERCODIGO>.parquet`); o conversor mantém só a de carimbo mais recente. Antes da correção (conversor até a 0.3.2) valia a última pasta em ordem alfabética, mesmo sendo a mais antiga: em `ABRAS12_INVNR12`, a cópia de `macro/` (69 linhas) era substituída pela de `series/` (68). Se o lake foi gerado por versão anterior, reconverta (veja o `CHANGELOG.md`).
 - **Unidade e escala por série.** O valor vem como publicado; consulte `series.uninome` e `series.mulnome` antes de somar ou comparar.
 - **Muitos nulos.** 36% das linhas da amostra têm valor nulo (7 séries); filtre ou trate antes de calcular.
 - **`data` descarta a hora.** `data` é o texto da data local; `valdata` mostra o fuso. Não some horas a `data`.

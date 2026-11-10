@@ -7,6 +7,12 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+### Corrigido
+- A conversão de `valores` e `valores_regional` não perde mais dados quando a mesma série existe em mais de uma pasta do bruto (`macro/` e `series/`, `series/` e `regional/`, `series/` e `social/`). As cópias iam para o mesmo destino no lake (`<SERCODIGO>.parquet`) e a última pasta em ordem alfabética sobrescrevia as outras, mesmo sendo a mais antiga; o resultado ainda contava uma conversão por cópia. Agora vale só a cópia de carimbo mais recente, de qualquer pasta, e a conversão conta uma por série.
+- Séries sem nenhum valor (lista `value` vazia) e respostas sem `VALDATA`/`VALVALOR` deixam de ser descartadas em silêncio: o conversor registra um aviso no log e as conta em `skipped`.
+
+**Como reconverter.** As chaves e as partições dos Parquets não mudam, mas o lake gerado pelas versões anteriores pode ter cópias antigas no lugar das novas e, por segurança, partições de uma cópia que perdeu. Para refazer `valores` e `valores_regional`, apague antes as pastas `ipeadata/valores/` e `ipeadata/valores_regional/` do lake e converta de novo esses dois datasets. As dimensões (`series`, `temas`, `territorios`, `paises`) não são afetadas.
+
 ### Adicionado
 - Documentação dos dados em `docs/`, conforme a norma de documentação dos dados: página da fonte, página e dicionário de todas as variáveis e esquema de referência para cada um dos seis datasets. Um teste a verifica.
 

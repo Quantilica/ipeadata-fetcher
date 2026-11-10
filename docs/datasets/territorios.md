@@ -56,7 +56,7 @@ Os territórios dão nome, código e área aos lugares dos valores regionais e s
 
 - O fetcher chama a API OData v4 do Ipeadata (`http://www.ipeadata.gov.br/api/odata4/`) e grava a resposta como JSON na pasta `dimensoes/`, com o nome `territorios@20261105.json`. O carimbo é fixo e não é a data da coleta: os endpoints não informam versão, e o carimbo fixo faz o arquivo ser substituído no mesmo lugar quando a dimensão muda.
 - O conversor lê a lista `value` do JSON e grava um único Parquet.
-- Entidade da API: `Territorios`. O arquivo no Drive tinha 3,3 MB em 2026-11-10.
+- Entidade da API: `Territorios`. O arquivo no bruto tinha 3,3 MB em 2026-11-10.
 
 ## Conteúdo
 

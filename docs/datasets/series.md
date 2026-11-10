@@ -56,7 +56,7 @@ O catálogo de séries do Ipeadata é a tabela de metadados que descreve cada s�
 
 - O fetcher chama a API OData v4 do Ipeadata (`http://www.ipeadata.gov.br/api/odata4/`) e grava a resposta como JSON na pasta `dimensoes/`, com o nome `metadados@20261105.json`. O carimbo é fixo e não é a data da coleta: os endpoints não informam versão, e o carimbo fixo faz o arquivo ser substituído no mesmo lugar quando a dimensão muda.
 - O conversor lê a lista `value` do JSON e grava um único Parquet.
-- Entidade da API: `Metadados`. O arquivo no Drive tinha 7,5 MB em 2026-11-10.
+- Entidade da API: `Metadados`. O arquivo no bruto tinha 7,5 MB em 2026-11-10.
 
 ## Conteúdo
 
@@ -64,7 +64,7 @@ O catálogo de séries do Ipeadata é a tabela de metadados que descreve cada s�
 - Por base: 2.510 macroeconômicas (1.840 ativas e 670 inativas), 523 regionais e 1.103 sociais; séries regionais e sociais não têm situação (`serstatus` vazio).
 - Por periodicidade (`pernome`): 1.586 mensais, 1.354 anuais, 619 decenais, 469 trimestrais, 51 quadrienais, 38 diárias, 8 `Não se aplica`, 6 irregulares e 5 quinquenais.
 - 91 fontes (`fntsigla`) e 65 temas. Última atualização registrada: 2026-11-05.
-- Dos arquivos de valores no Drive, 4.138 códigos de série têm arquivo; 4.135 estão no catálogo, e 1 série do catálogo (`ivsc_ivs_capital_humano_p`, base macroeconômica, anual) não tem arquivo de valores.
+- Dos arquivos de valores no bruto, 4.138 códigos de série têm arquivo; 4.135 estão no catálogo, e 1 série do catálogo (`ivsc_ivs_capital_humano_p`, base macroeconômica, anual) não tem arquivo de valores.
 
 ## Variáveis
 
