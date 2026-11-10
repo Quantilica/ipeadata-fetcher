@@ -1,0 +1,105 @@
+{
+  "fonte": "ipeadata",
+  "dataset": "series",
+  "gerado_em": "2026-11-10T14:00:48+00:00",
+  "particoes": [],
+  "colunas": [
+    {
+      "nome": "sercodigo",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "sernome",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "sercomentario",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "seratualizacao",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "basnome",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "fntsigla",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "fntnome",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "fnturl",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "pernome",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "uninome",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "mulnome",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "serstatus",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "temcodigo",
+      "tipos": [
+        "int64"
+      ]
+    },
+    {
+      "nome": "paicodigo",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "sernumerica",
+      "tipos": [
+        "bool"
+      ]
+    },
+    {
+      "nome": "ativa",
+      "tipos": [
+        "bool"
+      ]
+    }
+  ],
+  "arquivos": 1
+}

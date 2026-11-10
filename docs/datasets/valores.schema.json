@@ -1,0 +1,54 @@
+{
+  "fonte": "ipeadata",
+  "dataset": "valores",
+  "gerado_em": "2026-11-10T14:00:48+00:00",
+  "particoes": [
+    "base",
+    "periodicidade"
+  ],
+  "colunas": [
+    {
+      "nome": "sercodigo",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "valdata",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "valvalor",
+      "tipos": [
+        "double"
+      ]
+    },
+    {
+      "nome": "nivnome",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "tercodigo",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "data",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "valor",
+      "tipos": [
+        "double"
+      ]
+    }
+  ],
+  "arquivos": 7
+}

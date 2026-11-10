@@ -1,0 +1,51 @@
+{
+  "fonte": "ipeadata",
+  "dataset": "territorios",
+  "gerado_em": "2026-11-10T14:00:48+00:00",
+  "particoes": [],
+  "colunas": [
+    {
+      "nome": "nivnome",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "tercodigo",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "ternome",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "ternomepadrao",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "tercapital",
+      "tipos": [
+        "bool"
+      ]
+    },
+    {
+      "nome": "terarea",
+      "tipos": [
+        "double"
+      ]
+    },
+    {
+      "nome": "nivamc",
+      "tipos": [
+        "bool"
+      ]
+    }
+  ],
+  "arquivos": 1
+}
