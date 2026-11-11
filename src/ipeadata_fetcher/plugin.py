@@ -118,7 +118,10 @@ fetcher = FetcherApp(
         id="ipeadata",
         nome="Ipeadata",
         orgao="Instituto de Pesquisa Econômica Aplicada (Ipea)",
-        licenca=None,
+        licenca=(
+            "Sem licença declarada; dados públicos pela Lei 12.527/2011 (LAI) "
+            "e Decreto 8.777/2016"
+        ),
         homepage="http://www.ipeadata.gov.br",
         cadencia="daily",
         dominio="macroeconomia",
