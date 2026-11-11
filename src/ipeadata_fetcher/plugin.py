@@ -15,6 +15,7 @@ from typing import Any
 import typer
 from quantilica.cli.sdk import CheckPlanItem, FetcherApp, make_resolve_groups
 from quantilica.cli.ui import get_console
+from quantilica.core.registry import FetcherInfo
 from quantilica.core.sync import FreshnessPolicy
 
 from .backfill import (
@@ -113,6 +114,15 @@ def inativa_ja_baixada(entry: dict[str, Any], output_dir: Path) -> bool:
 fetcher = FetcherApp(
     name="ipeadata",
     help="Séries econômicas, sociais e regionais do Ipeadata",
+    info=FetcherInfo(
+        id="ipeadata",
+        nome="Ipeadata",
+        orgao="Instituto de Pesquisa Econômica Aplicada (Ipea)",
+        licenca=None,
+        homepage="http://www.ipeadata.gov.br",
+        cadencia="daily",
+        dominio="macroeconomia",
+    ),
     groups_dict=GROUPS,
     aliases_dict=ALIASES,
     list_datasets=list_datasets,
