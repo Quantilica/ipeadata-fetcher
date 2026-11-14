@@ -7,6 +7,8 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+## [0.5.0] - 2026-11-14
+
 ### Adicionado
 - O fetcher declara os fatos da fonte (`FetcherInfo`: id canônico, órgão, página e cadência) para o registro de fetchers da Quantilica.
 
