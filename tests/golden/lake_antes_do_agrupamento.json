@@ -1,0 +1,789 @@
+{
+ "contagem_de_arquivos": {
+  "valores": {
+   "macro/__HIVE_DEFAULT_PARTITION__": 1,
+   "macro/anual": 1,
+   "macro/diaria": 1,
+   "macro/mensal": 3
+  },
+  "valores_regional": {
+   "AMC_91-00/decenal": 1,
+   "Brasil/decenal": 1,
+   "Estados/anual": 1,
+   "Estados/decenal": 1,
+   "Municipios/anual": 1,
+   "Municipios/decenal": 1
+  }
+ },
+ "convertidos": 13,
+ "lake": {
+  "valores": {
+   "macro/__HIVE_DEFAULT_PARTITION__": {
+    "amostra": [
+     [
+      "2020-01-01",
+      "",
+      "SEM_META",
+      "",
+      "2020-01-01T00:00:00-03:00",
+      "1.5",
+      "1.5"
+     ],
+     [
+      "2021-01-01",
+      "",
+      "SEM_META",
+      "",
+      "2021-01-01T00:00:00-03:00",
+      "1.5",
+      "1.5"
+     ]
+    ],
+    "anos": [
+     "2020",
+     "2021"
+    ],
+    "colunas": [
+     [
+      "data",
+      "String"
+     ],
+     [
+      "nivnome",
+      "String"
+     ],
+     [
+      "sercodigo",
+      "String"
+     ],
+     [
+      "tercodigo",
+      "String"
+     ],
+     [
+      "valdata",
+      "String"
+     ],
+     [
+      "valor",
+      "Float64"
+     ],
+     [
+      "valvalor",
+      "Float64"
+     ]
+    ],
+    "conteudo_sha256": "4b89e457098f674f5ebde8195a43ba5b719f22c35f68eb3d373f891979ac1dd6",
+    "linhas": 2,
+    "tipos_de_valvalor_no_arquivo": [
+     "Float64"
+    ]
+   },
+   "macro/anual": {
+    "amostra": [
+     [
+      "1950-01-01",
+      "",
+      "PIB_ANUAL",
+      "",
+      "1950-01-01T00:00:00-03:00",
+      "1.95",
+      "1.95"
+     ],
+     [
+      "1951-01-01",
+      "",
+      "PIB_ANUAL",
+      "",
+      "1951-01-01T00:00:00-03:00",
+      "1.951",
+      "1.951"
+     ],
+     [
+      "1952-01-01",
+      "",
+      "PIB_ANUAL",
+      "",
+      "1952-01-01T00:00:00-03:00",
+      "1.952",
+      "1.952"
+     ]
+    ],
+    "anos": [
+     "1950",
+     "1951",
+     "1952",
+     "1953",
+     "1954",
+     "1955",
+     "1956",
+     "1957",
+     "1958",
+     "1959",
+     "1960",
+     "1961",
+     "1962",
+     "1963",
+     "1964",
+     "1965",
+     "1966",
+     "1967",
+     "1968",
+     "1969",
+     "1970",
+     "1971",
+     "1972",
+     "1973",
+     "1974",
+     "1975",
+     "1976",
+     "1977",
+     "1978",
+     "1979",
+     "1980",
+     "1981",
+     "1982",
+     "1983",
+     "1984",
+     "1985",
+     "1986",
+     "1987",
+     "1988",
+     "1989",
+     "1990",
+     "1991",
+     "1992",
+     "1993",
+     "1994",
+     "1995",
+     "1996",
+     "1997",
+     "1998",
+     "1999",
+     "2000",
+     "2001",
+     "2002",
+     "2003",
+     "2004",
+     "2005",
+     "2006",
+     "2007",
+     "2008",
+     "2009",
+     "2010",
+     "2011",
+     "2012",
+     "2013",
+     "2014",
+     "2015",
+     "2016",
+     "2017",
+     "2018",
+     "2019",
+     "2020",
+     "2021",
+     "2022",
+     "2023"
+    ],
+    "colunas": [
+     [
+      "data",
+      "String"
+     ],
+     [
+      "nivnome",
+      "String"
+     ],
+     [
+      "sercodigo",
+      "String"
+     ],
+     [
+      "tercodigo",
+      "String"
+     ],
+     [
+      "valdata",
+      "String"
+     ],
+     [
+      "valor",
+      "Float64"
+     ],
+     [
+      "valvalor",
+      "Float64"
+     ]
+    ],
+    "conteudo_sha256": "c1ea8a868b5092fea050adb0f6953dae915734d3648efe319430b593bfdacc7e",
+    "linhas": 74,
+    "tipos_de_valvalor_no_arquivo": [
+     "Float64"
+    ]
+   },
+   "macro/diaria": {
+    "amostra": [
+     [
+      "2019-12-30",
+      "",
+      "CAMBIO_D",
+      "",
+      "2019-12-30T00:00:00-03:00",
+      "4.0",
+      "4.0"
+     ],
+     [
+      "2019-12-31",
+      "",
+      "CAMBIO_D",
+      "",
+      "2019-12-31T00:00:00-03:00",
+      "4.142857142857143",
+      "4.142857142857143"
+     ],
+     [
+      "2020-01-02",
+      "",
+      "CAMBIO_D",
+      "",
+      "2020-01-02T00:00:00-03:00",
+      "",
+      ""
+     ]
+    ],
+    "anos": [
+     "2019",
+     "2020",
+     "2021"
+    ],
+    "colunas": [
+     [
+      "data",
+      "String"
+     ],
+     [
+      "nivnome",
+      "String"
+     ],
+     [
+      "sercodigo",
+      "String"
+     ],
+     [
+      "tercodigo",
+      "String"
+     ],
+     [
+      "valdata",
+      "String"
+     ],
+     [
+      "valor",
+      "Float64"
+     ],
+     [
+      "valvalor",
+      "Float64"
+     ]
+    ],
+    "conteudo_sha256": "19dea1a09967e1c29e9d722a274cf5ab7dae4fe285b6bccbb1a8f4d422751b29",
+    "linhas": 6,
+    "tipos_de_valvalor_no_arquivo": [
+     "Float64"
+    ]
+   },
+   "macro/mensal": {
+    "amostra": [
+     [
+      "2019-01-01",
+      "",
+      "PRECOS_IPCAG",
+      "",
+      "2019-01-01T00:00:00-03:00",
+      "119.1",
+      "119.1"
+     ],
+     [
+      "2019-02-01",
+      "",
+      "PRECOS_IPCAG",
+      "",
+      "2019-02-01T00:00:00-03:00",
+      "119.2",
+      "119.2"
+     ],
+     [
+      "2019-03-01",
+      "",
+      "PRECOS_IPCAG",
+      "",
+      "2019-03-01T00:00:00-03:00",
+      "119.3",
+      "119.3"
+     ]
+    ],
+    "anos": [
+     "2019",
+     "2020",
+     "2021",
+     "2022"
+    ],
+    "colunas": [
+     [
+      "data",
+      "String"
+     ],
+     [
+      "nivnome",
+      "String"
+     ],
+     [
+      "sercodigo",
+      "String"
+     ],
+     [
+      "tercodigo",
+      "String"
+     ],
+     [
+      "valdata",
+      "String"
+     ],
+     [
+      "valor",
+      "Float64"
+     ],
+     [
+      "valvalor",
+      "Float64"
+     ]
+    ],
+    "conteudo_sha256": "504685a317b494acd94368a43e6083d2b9361feab8babf9386872c4d113cd915",
+    "linhas": 78,
+    "tipos_de_valvalor_no_arquivo": [
+     "Float64",
+     "Int64"
+    ]
+   }
+  },
+  "valores_regional": {
+   "AMC_91-00/decenal": {
+    "amostra": [
+     [
+      "1991-01-01",
+      "AMC 91-00",
+      "ADH_IDHM",
+      "99",
+      "1991-01-01T00:00:00-03:00",
+      "0.5991",
+      "0.5991"
+     ],
+     [
+      "2000-01-01",
+      "AMC 91-00",
+      "ADH_IDHM",
+      "99",
+      "2000-01-01T00:00:00-03:00",
+      "0.6000000000000001",
+      "0.6000000000000001"
+     ],
+     [
+      "2010-01-01",
+      "AMC 91-00",
+      "ADH_IDHM",
+      "99",
+      "2010-01-01T00:00:00-03:00",
+      "0.601",
+      "0.601"
+     ]
+    ],
+    "anos": [
+     "1991",
+     "2000",
+     "2010"
+    ],
+    "colunas": [
+     [
+      "data",
+      "String"
+     ],
+     [
+      "nivnome",
+      "String"
+     ],
+     [
+      "sercodigo",
+      "String"
+     ],
+     [
+      "tercodigo",
+      "String"
+     ],
+     [
+      "valdata",
+      "String"
+     ],
+     [
+      "valor",
+      "Float64"
+     ],
+     [
+      "valvalor",
+      "Float64"
+     ]
+    ],
+    "conteudo_sha256": "a453e5d5cbc3a7688ea7a01c4079440dbf567d221d0df71617e05b4f7483ed1c",
+    "linhas": 3,
+    "tipos_de_valvalor_no_arquivo": [
+     "Float64"
+    ]
+   },
+   "Brasil/decenal": {
+    "amostra": [
+     [
+      "1991-01-01",
+      "Brasil",
+      "ADH_IDHM",
+      "1",
+      "1991-01-01T00:00:00-03:00",
+      "0.5991",
+      "0.5991"
+     ],
+     [
+      "2000-01-01",
+      "Brasil",
+      "ADH_IDHM",
+      "1",
+      "2000-01-01T00:00:00-03:00",
+      "0.6000000000000001",
+      "0.6000000000000001"
+     ],
+     [
+      "2010-01-01",
+      "Brasil",
+      "ADH_IDHM",
+      "1",
+      "2010-01-01T00:00:00-03:00",
+      "0.601",
+      "0.601"
+     ]
+    ],
+    "anos": [
+     "1991",
+     "2000",
+     "2010"
+    ],
+    "colunas": [
+     [
+      "data",
+      "String"
+     ],
+     [
+      "nivnome",
+      "String"
+     ],
+     [
+      "sercodigo",
+      "String"
+     ],
+     [
+      "tercodigo",
+      "String"
+     ],
+     [
+      "valdata",
+      "String"
+     ],
+     [
+      "valor",
+      "Float64"
+     ],
+     [
+      "valvalor",
+      "Float64"
+     ]
+    ],
+    "conteudo_sha256": "53574860dae5d4e2102b7933b47e92d24b8b8f7ca7375b82b62169edc918b047",
+    "linhas": 3,
+    "tipos_de_valvalor_no_arquivo": [
+     "Float64"
+    ]
+   },
+   "Estados/anual": {
+    "amostra": [
+     [
+      "2000-01-01",
+      "Estados",
+      "SOC_X",
+      "35",
+      "2000-01-01T00:00:00-03:00",
+      "5.0",
+      "5.0"
+     ],
+     [
+      "2001-01-01",
+      "Estados",
+      "SOC_X",
+      "35",
+      "2001-01-01T00:00:00-03:00",
+      "6.0",
+      "6.0"
+     ]
+    ],
+    "anos": [
+     "2000",
+     "2001"
+    ],
+    "colunas": [
+     [
+      "data",
+      "String"
+     ],
+     [
+      "nivnome",
+      "String"
+     ],
+     [
+      "sercodigo",
+      "String"
+     ],
+     [
+      "tercodigo",
+      "String"
+     ],
+     [
+      "valdata",
+      "String"
+     ],
+     [
+      "valor",
+      "Float64"
+     ],
+     [
+      "valvalor",
+      "Float64"
+     ]
+    ],
+    "conteudo_sha256": "32d5d761b9e406e57fe64345ef6efcd3f0746b89aa5cb618c855ef54470b8e38",
+    "linhas": 2,
+    "tipos_de_valvalor_no_arquivo": [
+     "Int64"
+    ]
+   },
+   "Estados/decenal": {
+    "amostra": [
+     [
+      "1991-01-01",
+      "Estados",
+      "ADH_IDHM",
+      "41",
+      "1991-01-01T00:00:00-03:00",
+      "0.5991",
+      "0.5991"
+     ],
+     [
+      "2000-01-01",
+      "Estados",
+      "ADH_IDHM",
+      "41",
+      "2000-01-01T00:00:00-03:00",
+      "0.6000000000000001",
+      "0.6000000000000001"
+     ],
+     [
+      "2010-01-01",
+      "Estados",
+      "ADH_IDHM",
+      "41",
+      "2010-01-01T00:00:00-03:00",
+      "0.601",
+      "0.601"
+     ]
+    ],
+    "anos": [
+     "1991",
+     "2000",
+     "2010"
+    ],
+    "colunas": [
+     [
+      "data",
+      "String"
+     ],
+     [
+      "nivnome",
+      "String"
+     ],
+     [
+      "sercodigo",
+      "String"
+     ],
+     [
+      "tercodigo",
+      "String"
+     ],
+     [
+      "valdata",
+      "String"
+     ],
+     [
+      "valor",
+      "Float64"
+     ],
+     [
+      "valvalor",
+      "Float64"
+     ]
+    ],
+    "conteudo_sha256": "dc5f2f610bc31566de774c9821a100687742c6e565c18942371831676d97b558",
+    "linhas": 3,
+    "tipos_de_valvalor_no_arquivo": [
+     "Float64"
+    ]
+   },
+   "Municipios/anual": {
+    "amostra": [
+     [
+      "2019-01-01",
+      "Municípios",
+      "DFEDUCM",
+      "3550308",
+      "2019-01-01T00:00:00-03:00",
+      "28509.5",
+      "28509.5"
+     ],
+     [
+      "2020-01-01",
+      "Municípios",
+      "DFEDUCM",
+      "3550308",
+      "2020-01-01T00:00:00-03:00",
+      "30010.0",
+      "30010.0"
+     ],
+     [
+      "2021-01-01",
+      "Municípios",
+      "DFEDUCM",
+      "3550308",
+      "2021-01-01T00:00:00-03:00",
+      "31510.5",
+      "31510.5"
+     ]
+    ],
+    "anos": [
+     "2019",
+     "2020",
+     "2021"
+    ],
+    "colunas": [
+     [
+      "data",
+      "String"
+     ],
+     [
+      "nivnome",
+      "String"
+     ],
+     [
+      "sercodigo",
+      "String"
+     ],
+     [
+      "tercodigo",
+      "String"
+     ],
+     [
+      "valdata",
+      "String"
+     ],
+     [
+      "valor",
+      "Float64"
+     ],
+     [
+      "valvalor",
+      "Float64"
+     ]
+    ],
+    "conteudo_sha256": "2e8bc77a75ac76c765cc4b0e9ec0d4bc815509712f7643aa4e7633ae6b0dc601",
+    "linhas": 3,
+    "tipos_de_valvalor_no_arquivo": [
+     "Float64"
+    ]
+   },
+   "Municipios/decenal": {
+    "amostra": [
+     [
+      "1991-01-01",
+      "Municípios",
+      "ADH_IDHM",
+      "3550308",
+      "1991-01-01T00:00:00-03:00",
+      "0.5991",
+      "0.5991"
+     ],
+     [
+      "1991-01-01",
+      "Municípios",
+      "ADH_IDHM",
+      "4118402",
+      "1991-01-01T00:00:00-03:00",
+      "0.5991",
+      "0.5991"
+     ],
+     [
+      "2000-01-01",
+      "Municípios",
+      "ADH_IDHM",
+      "3550308",
+      "2000-01-01T00:00:00-03:00",
+      "0.6000000000000001",
+      "0.6000000000000001"
+     ]
+    ],
+    "anos": [
+     "1991",
+     "2000",
+     "2010"
+    ],
+    "colunas": [
+     [
+      "data",
+      "String"
+     ],
+     [
+      "nivnome",
+      "String"
+     ],
+     [
+      "sercodigo",
+      "String"
+     ],
+     [
+      "tercodigo",
+      "String"
+     ],
+     [
+      "valdata",
+      "String"
+     ],
+     [
+      "valor",
+      "Float64"
+     ],
+     [
+      "valvalor",
+      "Float64"
+     ]
+    ],
+    "conteudo_sha256": "77457c25dc9f46fca75a8f872759f14f7c7211ec36d7d412538972d292621fdb",
+    "linhas": 6,
+    "tipos_de_valvalor_no_arquivo": [
+     "Float64"
+    ]
+   }
+  }
+ },
+ "puladas": 1
+}
