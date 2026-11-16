@@ -12,7 +12,7 @@ dataset:
   unidade: "valor de uma série regional ou social em uma data e um território"
   granularidade: {espacial: "Brasil, regiões, estados, municípios e outros níveis (AMC, mesorregião, microrregião, área metropolitana)", temporal: "da data da observação: trimestre a década, conforme a série"}
   formato_bruto: "JSON da API OData v4 do Ipeadata (função `ValoresSerie`), um arquivo por série; um arquivo mistura vários níveis territoriais"
-  lake: {estado: convertido, particoes: [nivel, periodicidade], chave: [sercodigo, valdata, nivnome, tercodigo], colunas: 7}
+  lake: {estado: convertido, particoes: [nivel, periodicidade, ano], chave: [sercodigo, valdata, nivnome, tercodigo], colunas: 8}
   unidades_de_medida:
     valvalor: "varia por série (series.uninome e series.mulnome)"
     valor: "varia por série (series.uninome e series.mulnome)"
@@ -44,9 +44,9 @@ Valores das séries regionais (por exemplo, agências bancárias e despesas dos 
 | Granularidade | espacial: Brasil, regiões, estados, municípios e outros níveis (AMC, mesorregião, microrregião, área metropolitana); temporal: da data da observação: trimestre a década, conforme a série |
 | Formato bruto | JSON da API OData v4 do Ipeadata (função `ValoresSerie`), um arquivo por série; um arquivo mistura vários níveis territoriais |
 | Estado no lake | convertido |
-| Partições | `nivel`, `periodicidade` |
+| Partições | `nivel`, `periodicidade`, `ano` |
 | Chave | `sercodigo`, `valdata`, `nivnome`, `tercodigo` |
-| Colunas | 7 |
+| Colunas | 8 |
 | Unidades de medida | `valvalor`: varia por série (series.uninome e series.mulnome); `valor`: varia por série (series.uninome e series.mulnome) |
 | Dados pessoais | nenhum |
 | Eras | nenhuma |
@@ -77,10 +77,11 @@ Valores das séries regionais (por exemplo, agências bancárias e despesas dos 
 | `tercodigo` | TERCODIGO | texto | Código do território dentro do nível | código IBGE ou interno; ver `territorios` | todo |
 | `data` | — (gerada) | texto | Data no formato AAAA-MM-DD (10 primeiros caracteres de `valdata`) | AAAA-MM-DD, texto | todo |
 | `valor` | — (gerada) | decimal | Cópia de `valvalor` convertida para decimal | igual a `valvalor` | todo |
+| `_origem` | — (conversor) | texto | Série de origem da linha: o código do arquivo bruto (`PRECOS_IPCAG`); o rodapé do Parquet lista as séries do arquivo (`quantilica.members`) | — | todo (depois da reconversão) |
 
 ## No lake
 
-- Dataset `ipeadata/valores_regional`, particionado por `nivel` e `periodicidade`: `nivel=Municipios/periodicidade=anual/<SERCODIGO>.parquet`. Um arquivo da fonte que mistura níveis vira um arquivo por nível.
+- Dataset `ipeadata/valores_regional`, particionado por `nivel`, `periodicidade` e `ano` (ano da data da observação, inteiro): `nivel=Municipios/periodicidade=anual/ano=2010/valores_regional_Municipios_anual.parquet`, um arquivo por pasta, com as observações de todas as séries daquele nível e ano. Um arquivo da fonte que mistura níveis ou anos aparece em um arquivo por nível e ano. A coluna `_origem` traz o código da série de cada linha, e o rodapé do Parquet lista as séries do arquivo (`quantilica.members`).
 - `nivel` é `nivnome` sem acento nem espaço (`Regiões` vira `Regioes`, `AMC 1872-00` vira `AMC_1872-00`); sem nível, a linha vai para `nivel=__HIVE_DEFAULT_PARTITION__`.
 - `periodicidade` como em `valores`.
 - Chave natural: (`sercodigo`, `valdata`, `nivnome`, `tercodigo`), sem repetição na amostra.

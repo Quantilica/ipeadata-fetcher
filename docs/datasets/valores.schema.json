@@ -4,7 +4,8 @@
   "gerado_em": "2026-11-10T14:00:48+00:00",
   "particoes": [
     "base",
-    "periodicidade"
+    "periodicidade",
+    "ano"
   ],
   "colunas": [
     {
@@ -47,6 +48,12 @@
       "nome": "valor",
       "tipos": [
         "double"
+      ]
+    },
+    {
+      "nome": "_origem",
+      "tipos": [
+        "string"
       ]
     }
   ],

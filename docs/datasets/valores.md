@@ -12,7 +12,7 @@ dataset:
   unidade: "valor de uma série numérica macroeconômica em uma data"
   granularidade: {espacial: "Brasil (maioria), Estados Unidos e Mundial", temporal: "da data da observação: dia a década, conforme a série"}
   formato_bruto: "JSON da API OData v4 do Ipeadata (função `ValoresSerie`), um arquivo por série"
-  lake: {estado: convertido, particoes: [base, periodicidade], chave: [sercodigo, valdata], colunas: 7}
+  lake: {estado: convertido, particoes: [base, periodicidade, ano], chave: [sercodigo, valdata], colunas: 8}
   unidades_de_medida:
     valvalor: "varia por série (series.uninome e series.mulnome)"
     valor: "varia por série (series.uninome e series.mulnome)"
@@ -44,9 +44,9 @@ Os valores das séries macroeconômicas do Ipeadata (câmbio, juros, preços, pr
 | Granularidade | espacial: Brasil (maioria), Estados Unidos e Mundial; temporal: da data da observação: dia a década, conforme a série |
 | Formato bruto | JSON da API OData v4 do Ipeadata (função `ValoresSerie`), um arquivo por série |
 | Estado no lake | convertido |
-| Partições | `base`, `periodicidade` |
+| Partições | `base`, `periodicidade`, `ano` |
 | Chave | `sercodigo`, `valdata` |
-| Colunas | 7 |
+| Colunas | 8 |
 | Unidades de medida | `valvalor`: varia por série (series.uninome e series.mulnome); `valor`: varia por série (series.uninome e series.mulnome) |
 | Dados pessoais | nenhum |
 | Eras | nenhuma |
@@ -78,20 +78,21 @@ Os valores das séries macroeconômicas do Ipeadata (câmbio, juros, preços, pr
 | `tercodigo` | TERCODIGO | texto | Código do território; sempre vazio na base macroeconômica | nulo em todas as linhas da amostra | todo |
 | `data` | — (gerada) | texto | Data do valor no formato AAAA-MM-DD, os 10 primeiros caracteres de `valdata` | AAAA-MM-DD, texto | todo |
 | `valor` | — (gerada) | decimal | Cópia de `valvalor` convertida para decimal | igual a `valvalor` | todo |
+| `_origem` | — (conversor) | texto | Série de origem da linha: o código do arquivo bruto (`PRECOS_IPCAG`); o rodapé do Parquet lista as séries do arquivo (`quantilica.members`) | — | todo (depois da reconversão) |
 
 ## No lake
 
-- Dataset `ipeadata/valores`, particionado por `base` e `periodicidade`: `base=macro/periodicidade=mensal/<SERCODIGO>.parquet`, um arquivo por série.
+- Dataset `ipeadata/valores`, particionado por `base`, `periodicidade` e `ano` (ano da data da observação, inteiro): `base=macro/periodicidade=mensal/ano=2024/valores_macro_mensal.parquet`, um arquivo por pasta, com as observações de todas as séries daquele ano. A coluna `_origem` traz o código da série de cada linha, e o rodapé do Parquet lista as séries do arquivo (`quantilica.members`, com sha256 e linhas de cada uma). Cada série aparece em tantos arquivos quantos forem os anos que ela cobre. Linha sem data AAAA-MM-DD vai para `ano=__HIVE_DEFAULT_PARTITION__`.
 - `base` é `macro`, exceto quando a pasta do bruto se chama `social`; como as séries sociais têm `nivnome` preenchido, elas vão para `valores_regional`, e `base=social` não ocorre na prática.
 - `periodicidade` vem do metadado da série (`pernome`) em minúsculas e sem acento: `diaria`, `mensal`, `trimestral`, `anual`, `decenal`, `quinquenal`, `quadrienal`, `irregular`, `nao_se_aplica`. Série sem periodicidade nos metadados vai para `periodicidade=__HIVE_DEFAULT_PARTITION__`.
 - Chave natural: (`sercodigo`, `valdata`), sem repetição na amostra.
-- O conversor lê o JSON da série (`ValoresSerie`), renomeia as colunas para minúsculas e acrescenta `data` (os 10 primeiros caracteres de `valdata`, sem deslocamento de fuso) e `valor` (`valvalor` como decimal; o que não converte vira nulo).
+- O conversor lê o JSON da série (`ValoresSerie`), renomeia as colunas para minúsculas e acrescenta `data` (os 10 primeiros caracteres de `valdata`, sem deslocamento de fuso) e `valor` (`valvalor` como decimal; o que não converte vira nulo). `valvalor` é sempre decimal (série só com valores inteiros também), e as demais colunas são texto.
 - Textos vazios em `nivnome` e `tercodigo` viram nulo.
 - Séries cuja resposta não tem `VALDATA` e `VALVALOR`, e séries vazias, são ignoradas com um aviso no log e contadas como puladas (`skipped`).
 
 ## Cuidados de uso
 
-- **Mesma série em mais de uma pasta.** Em 2026-11-10 havia mais de cem códigos em `macro/` e `series/`, 90 em `series/` e `regional/` e 2 em `series/` e `social/`. Todas as cópias iriam para o mesmo destino (`<SERCODIGO>.parquet`); o conversor mantém só a de carimbo mais recente. Antes da correção (conversor até a 0.3.2) valia a última pasta em ordem alfabética, mesmo sendo a mais antiga: em `ABRAS12_INVNR12`, a cópia de `macro/` (69 linhas) era substituída pela de `series/` (68). Se o lake foi gerado por versão anterior, reconverta (veja o `CHANGELOG.md`).
+- **Mesma série em mais de uma pasta.** Em 2026-11-10 havia mais de cem códigos em `macro/` e `series/`, 90 em `series/` e `regional/` e 2 em `series/` e `social/`. Todas as cópias iriam para o mesmo destino; o conversor mantém só a de carimbo mais recente. Antes da correção (conversor até a 0.3.2) valia a última pasta em ordem alfabética, mesmo sendo a mais antiga: em `ABRAS12_INVNR12`, a cópia de `macro/` (69 linhas) era substituída pela de `series/` (68). Se o lake foi gerado por versão anterior, reconverta (veja o `CHANGELOG.md`).
 - **Unidade e escala por série.** O valor vem como publicado; consulte `series.uninome` e `series.mulnome` antes de somar ou comparar.
 - **Muitos nulos.** 36% das linhas da amostra têm valor nulo (7 séries); filtre ou trate antes de calcular.
 - **`data` descarta a hora.** `data` é o texto da data local; `valdata` mostra o fuso. Não some horas a `data`.

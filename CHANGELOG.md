@@ -7,7 +7,23 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+### Alterado
+- **Quebra de layout no lake: `valores` e `valores_regional` passam a ser particionados também por ano, com um Parquet por pasta e todas as séries do ano.** A dimensão `series` e as demais não mudam. Antes e depois:
+  - `valores`, antes: `base=macro/periodicidade=mensal/PRECOS_IPCAG.parquet` (um Parquet por série, todos os anos juntos); depois: `base=macro/periodicidade=mensal/ano=2024/valores_macro_mensal.parquet` (um por base, periodicidade e ano, com as observações de todas as séries que têm dados naquele ano).
+  - `valores_regional`, antes: `nivel=Municipios/periodicidade=anual/ADH_IDHM.parquet`; depois: `nivel=Municipios/periodicidade=anual/ano=2010/valores_regional_Municipios_anual.parquet`.
+  - `ano` é o ano da data da observação (`data`, os 10 primeiros caracteres de `valdata`), inteiro; linha sem data AAAA-MM-DD vai para `ano=__HIVE_DEFAULT_PARTITION__`. O arquivo tem o mesmo nome em todos os `ano=` (o ano está na pasta).
+  - Cada linha ganha a coluna `_origem` (o código do arquivo bruto da série) e o rodapé do Parquet lista as séries do arquivo (`quantilica.members`, com sha256 e linhas de cada uma). Nenhuma coluna existente muda de nome. Um mesmo arquivo bruto aparece como membro em vários arquivos, um por ano que ele cobre (e por nível, nas regionais).
+  - A lista de séries de cada arquivo é a das séries vigentes do bruto: uma série revisada que perdeu as linhas de um ano sai do arquivo daquele ano (e o arquivo some se era a única), e uma série que sai do bruto ou muda de periodicidade, de base ou de nível sai dos arquivos antigos. Uma série sem mudança não reescreve nenhum arquivo: só o ano de uma série alterada é reescrito, e só essa série é relida do JSON.
+  - `valvalor` passa a ser sempre decimal (`double`); antes uma série só com valores inteiros gravava `Int64`. As demais colunas do JSON são texto. Os valores são os mesmos.
+  - Na reconversão os Parquets antigos por série saem sozinhos depois que os arquivos por ano são publicados (só os escritos por este dataset, não agrupados, com o nome da série, e só de série cujos arquivos foram todos escritos ou conferidos); um Parquet antigo de série que já não está no bruto fica no lake e deve ser apagado à mão.
+  - `ConvertResult.converted` e `skipped` passam a contar séries do bruto (antes, `converted` contava um arquivo por série e nível, e as séries sem mudança também eram contadas como convertidas); a dimensão `series` continua contando como convertida a cada execução. Erros do agrupamento começam por `Erro ao converter grupo <dataset>_...`.
+  - Uma série cujo JSON não pode ser lido é erro e, nessa execução, nenhum grupo descarta membros ausentes (`prune=False`), para não perder as linhas dela.
+- O conversor registra `contract_version` (1) e `converter_version` ("1") em cada série do grupo; mudar a leitura dos valores e subir uma delas reconverte tudo.
+- Exige `quantilica-analytics>=0.12.0` no extra `analysis` (`write_group`).
+- Documentação dos dados de `valores` e `valores_regional`: partição `ano` e coluna `_origem`.
+
 ### Adicionado
+- Testes de equivalência do agrupamento: o conteúdo do lake (linhas, colunas e tipos, anos e hash do conteúdo ordenado, por dataset e por base ou nível e periodicidade) é igual ao do conversor de um Parquet por série (`tests/golden/lake_antes_do_agrupamento.json`, gerado antes da mudança; a única diferença é `valvalor` inteiro virar `double`), mais segunda execução sem reescrita nem releitura, série revisada que perde ou ganha um ano, série que sai do bruto ou muda de periodicidade, migração do layout antigo sem linhas duplicadas, JSON ilegível sem perda de dados, `lake_audit` limpo e `profile_from_lake` com período anual.
 - Testes: identidade do registro conferida.
 
 ### Corrigido

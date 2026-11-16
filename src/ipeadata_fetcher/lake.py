@@ -555,7 +555,9 @@ def _convert_valores(
                 continue
             keys = VALORES_KEYS[dataset]
             partitions = {keys[0]: p1, keys[1]: per, keys[2]: ano}
-            group_key = "_".join([dataset, _slug(p1), _slug(per), _slug(ano)])
+            # Sem o ano no nome: o mesmo nome em cada ``ano=`` é o que a auditoria do
+            # lake reconhece como uma série repartida por ano das linhas.
+            group_key = "_".join([dataset, _slug(p1), _slug(per)])
             planned[dataset].add(
                 partition_dir(writer.dataset_dir, partitions) / f"{group_key}.parquet"
             )
@@ -650,6 +652,7 @@ def _remove_legacy_series(dataset_dir: Path, dataset: str, keys: set[str]) -> in
             or meta.get("quantilica.dataset_id") != dataset
             or META_MEMBERS in meta
             or meta.get("quantilica.file_key") not in keys
+            or meta.get("quantilica.file_key") != path.stem
         ):
             continue
         path.unlink()
