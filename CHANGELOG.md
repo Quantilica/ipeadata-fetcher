@@ -7,6 +7,8 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+
+## [0.6.0] - 2026-11-16
 ### Alterado
 - **Quebra de layout no lake: `valores` e `valores_regional` passam a ser particionados também por ano, com um Parquet por pasta e todas as séries do ano.** A dimensão `series` e as demais não mudam. Antes e depois:
   - `valores`, antes: `base=macro/periodicidade=mensal/PRECOS_IPCAG.parquet` (um Parquet por série, todos os anos juntos); depois: `base=macro/periodicidade=mensal/ano=2024/valores_macro_mensal.parquet` (um por base, periodicidade e ano, com as observações de todas as séries que têm dados naquele ano).
