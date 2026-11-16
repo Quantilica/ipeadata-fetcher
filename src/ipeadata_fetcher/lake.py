@@ -401,12 +401,12 @@ def _prepare_series(
         pl.lit(periodicidade, dtype=pl.Utf8).alias("periodicidade"),
         _year(pl.col("data")).alias("ano"),
     )
-    if df["ano"].null_count():
-        log(
-            "Ipeadata %s: %d linha(s) sem data AAAA-MM-DD na particao de "
-            "quarentena ano=__HIVE_DEFAULT_PARTITION__",
-            raw_file.name,
-            df["ano"].null_count(),
+    invalidas = df["ano"].null_count()
+    if invalidas:
+        # Nunca vai para uma pasta de quarentena de ano: a série é erro de leitura.
+        raise ValueError(
+            f"{invalidas} linha(s) sem data AAAA-MM-DD em VALDATA "
+            f"(de {df.height}); série não convertida"
         )
     if is_regional:
         # Nivel territorial real por linha (um arquivo mistura
@@ -492,6 +492,48 @@ def _slug(value: Any) -> str:
     return "sem" if value is None else str(value)
 
 
+ALLOW_PRUNE_ENV = "IPEADATA_FETCHER_ALLOW_PRUNE"
+#: Série ausente do bruto além de ``max(25, 2%)`` dos membros conhecidos: visão parcial.
+MAX_MISSING_ABS = 25
+MAX_MISSING_FRAC = 0.02
+
+
+@dataclass
+class _LakeState:
+    """O que o lake de um dataset já tem, lido dos rodapés."""
+
+    #: arquivo agrupado -> chaves das séries membros
+    groups: dict[Path, set[str]]
+    #: chaves dos Parquets por série do layout antigo
+    legacy: set[str]
+
+    @property
+    def known(self) -> set[str]:
+        return set().union(*self.groups.values()) if self.groups else set()
+
+
+def _lake_state(dataset_dir: Path, dataset: str) -> _LakeState:
+    groups: dict[Path, set[str]] = {}
+    legacy: set[str] = set()
+    if not dataset_dir.is_dir():
+        return _LakeState(groups, legacy)
+    for path in sorted(dataset_dir.rglob("*.parquet")):
+        if ".tmp" in path.relative_to(dataset_dir).parts:
+            continue
+        meta = _footer(path)
+        if (
+            meta is None
+            or meta.get("quantilica.source_id") != SOURCE_ID
+            or meta.get("quantilica.dataset_id") != dataset
+        ):
+            continue
+        if META_MEMBERS in meta:
+            groups[path] = set(json.loads(meta[META_MEMBERS]))
+        elif key := meta.get("quantilica.file_key"):
+            legacy.add(key)
+    return _LakeState(groups, legacy)
+
+
 def _convert_valores(
     raw_files: Sequence[Path],
     writers: dict[str, LakeWriter],
@@ -507,16 +549,44 @@ def _convert_valores(
     revisada que perdeu as linhas de um ano sai do grupo daquele ano, e a que
     entrou nele passa a constar. Só então escreve: o grupo cujos membros não mudaram
     é pulado sem reescrever, e do que mudou só a série alterada é relida.
+
+    Proteções contra perda de dados:
+
+    * Uma série que não pode ser lida (JSON ilegível, versão vigente vazia ou sem
+      ``VALDATA``/``VALVALOR`` mas já presente no lake, linhas sem data
+      ``AAAA-MM-DD``) é erro e **falha de leitura da chave**: os grupos do lake que
+      a têm como membro não descartam membros (``prune=False``) nem são removidos, e
+      os Parquets antigos dela ficam. Série vazia que nunca teve linhas no lake só
+      é pulada.
+    * Se o bruto vê bem menos séries do que o lake conhece (mais de
+      ``max(25, 2%)`` dos membros de um dataset ausentes), é visão parcial: nada é
+      descartado nem removido nesta execução (``IPEADATA_FETCHER_ALLOW_PRUNE=1``
+      libera) e a execução termina com erro explicando.
     """
+    presenca: set[str] = set()
+    estados: dict[str, _LakeState] = {}
+    for dataset, writer in writers.items():
+        if dataset in VALORES_KEYS:
+            estados[dataset] = _lake_state(writer.dataset_dir, dataset)
+            presenca |= estados[dataset].known | estados[dataset].legacy
+
     series: list[_Serie] = []
-    inspection_failed = False
+    falhas: set[str] = set()  # chaves de séries que não puderam ser lidas
     for raw_file in raw_files:
         key = file_key(raw_file)
         pastas = pastas_da_serie.get(key, set())
         try:
             prepared = _prepare_series(raw_file, pastas, periodicidades)
             if prepared is None:
-                res.skipped += 1
+                if key in presenca:
+                    falhas.add(key)
+                    res.errors.append(
+                        f"Erro ao converter série {raw_file.name}: a versão vigente "
+                        "não tem valores (lista vazia ou sem VALDATA/VALVALOR) mas a "
+                        "série já está no lake; nada foi removido"
+                    )
+                else:
+                    res.skipped += 1
                 continue
             if prepared.dataset not in writers:
                 continue
@@ -536,7 +606,25 @@ def _convert_valores(
             )
         except Exception as exc:
             res.errors.append(f"Erro ao converter série {raw_file.name}: {exc}")
-            inspection_failed = True
+            falhas.add(key)
+
+    # Visão parcial do bruto: séries que o lake conhece e o bruto não tem mais.
+    todas = {file_key(f) for f in raw_files}
+    trava: set[str] = set()
+    if os.environ.get(ALLOW_PRUNE_ENV) != "1":
+        for dataset, estado in estados.items():
+            conhecidas = estado.known
+            ausentes = conhecidas - todas
+            limite = max(MAX_MISSING_ABS, MAX_MISSING_FRAC * len(conhecidas))
+            if len(ausentes) > limite:
+                trava.add(dataset)
+                res.errors.append(
+                    f"ipeadata/{dataset}: {len(ausentes)} das {len(conhecidas)} séries "
+                    f"do lake não estão no bruto (limite {limite:g}); parece visão "
+                    "parcial do bruto. Nenhuma série foi descartada ou removida do "
+                    f"lake nesta execução. Se o bruto está certo, rode com "
+                    f"{ALLOW_PRUNE_ENV}=1."
+                )
 
     grupos: dict[tuple[str, str | None, str | None, int | None], list[_Serie]] = {}
     for serie in sorted(series, key=lambda x: x.key):
@@ -558,27 +646,28 @@ def _convert_valores(
             # Sem o ano no nome: o mesmo nome em cada ``ano=`` é o que a auditoria do
             # lake reconhece como uma série repartida por ano das linhas.
             group_key = "_".join([dataset, _slug(p1), _slug(per)])
-            planned[dataset].add(
+            alvo = (
                 partition_dir(writer.dataset_dir, partitions) / f"{group_key}.parquet"
             )
+            planned[dataset].add(alvo)
 
             def fatia(serie: _Serie, destino=(p1, per, ano)):
                 return lambda: slices.get(serie, destino)
 
             group = [
-                GroupMember(
-                    s.raw_file,
-                    fatia(s),
-                    key=s.key,
-                    sha256=s.sha256,
-                )
+                GroupMember(s.raw_file, fatia(s), key=s.key, sha256=s.sha256)
                 for s in membros
             ]
+            # Sem descartar membros se o bruto é visão parcial, ou se o arquivo que
+            # já existe tem como membro uma série que não pôde ser lida agora.
+            prune = dataset not in trava and not (
+                estados[dataset].groups.get(alvo, set()) & falhas
+            )
             options = {
                 "partitions": partitions,
                 "contract_version": CONTRACT_VERSION,
                 "converter_version": CONVERTER_VERSION,
-                "prune": not inspection_failed,
+                "prune": prune,
             }
             try:
                 if not writer.is_current_group(group_key, group, **options):
@@ -605,17 +694,34 @@ def _convert_valores(
             res.converted += 1
         else:
             res.skipped += 1 if s.ok else 0
-    keys_atuais = {s.key for s in series}
+    ok_keys = {s.key for s in series if s.ok}
     for dataset, writer in writers.items():
         if dataset not in VALORES_KEYS:
             continue
-        _remove_legacy_series(
-            writer.dataset_dir, dataset, {s.key for s in series if s.ok}
-        )
-        if not inspection_failed and dataset not in dataset_failed:
-            _drop_stale_groups(
-                writer.dataset_dir, dataset, planned[dataset], keys_atuais
+        if dataset not in trava:
+            _remove_legacy_series(writer.dataset_dir, dataset, ok_keys - falhas)
+            if dataset not in dataset_failed:
+                _drop_stale_groups(
+                    writer.dataset_dir, dataset, planned[dataset], ok_keys, falhas
+                )
+        for path in _old_layout_leftovers(writer.dataset_dir):
+            res.errors.append(
+                f"ipeadata/{dataset}: Parquet do layout antigo (por série, fora de "
+                f"ano=) mantido, confira e apague à mão se for resíduo: {path}"
             )
+
+
+def _old_layout_leftovers(dataset_dir: Path) -> list[Path]:
+    """Parquets que não estão numa pasta ``ano=``: resíduo do layout por série."""
+    if not dataset_dir.is_dir():
+        return []
+    achados = []
+    for path in sorted(dataset_dir.rglob("*.parquet")):
+        partes = path.relative_to(dataset_dir).parts[:-1]
+        if ".tmp" in partes or any(p.startswith("ano=") for p in partes):
+            continue
+        achados.append(path)
+    return achados
 
 
 def _footer(path: Path) -> dict[str, str] | None:
@@ -662,14 +768,19 @@ def _remove_legacy_series(dataset_dir: Path, dataset: str, keys: set[str]) -> in
 
 
 def _drop_stale_groups(
-    dataset_dir: Path, dataset: str, planned: set[Path], keys: set[str]
+    dataset_dir: Path,
+    dataset: str,
+    planned: set[Path],
+    keys: set[str],
+    falhas: set[str],
 ) -> list[Path]:
     """Apaga arquivos agrupados que nenhum grupo atual gera, sem perder linhas.
 
     Um grupo que sai do plano (a série mudou de periodicidade ou de nível, ou
     perdeu todas as linhas de um ano numa revisão) deixaria as linhas antigas em
-    duplicidade com o novo destino. Só é apagado se todos os membros dele ainda
-    são séries do bruto (as linhas estão nos grupos novos); senão fica, com aviso.
+    duplicidade com o novo destino. Só é apagado se todos os membros dele são
+    séries lidas e escritas nesta execução (``keys``: as linhas estão nos grupos
+    novos) e nenhum falhou na leitura (``falhas``); senão fica, com aviso.
     """
     gone: list[Path] = []
     for path in sorted(dataset_dir.glob("*/*/ano=*/*.parquet")):
@@ -684,14 +795,15 @@ def _drop_stale_groups(
         ):
             continue
         membros = json.loads(meta[META_MEMBERS])
-        if all(k in keys for k in membros):
+        if all(k in keys for k in membros) and not set(membros) & falhas:
             path.unlink()
             gone.append(path)
             logger.info("Ipeadata: grupo obsoleto %s removido", path)
             _prune_empty_dirs(path.parent, dataset_dir)
         else:
             logger.warning(
-                "Ipeadata: %s fora do plano, com séries ausentes do bruto; mantido",
+                "Ipeadata: %s fora do plano, com séries ausentes, ilegíveis ou não "
+                "escritas; mantido",
                 path,
             )
     return gone

@@ -192,7 +192,7 @@ def test_membros_no_rodape_e_origem_nas_linhas(raw: Path, tmp_path: Path) -> Non
         assert check_dataset(_dataset(lake, nome)) == []
 
 
-def test_segunda_execucao_pula_tudo_sem_reescrever_nem_reler(
+def test_segunda_execucao_nao_reescreve_arquivo_nem_gera_fatia(
     raw: Path, tmp_path: Path, leituras: list[str]
 ) -> None:
     lake = tmp_path / "lake"
@@ -205,7 +205,9 @@ def test_segunda_execucao_pula_tudo_sem_reescrever_nem_reler(
 
     assert not res.errors
     assert res.converted == DIM and res.skipped == N_SERIES + 1  # + a série vazia
-    assert leituras == []  # nenhuma fatia gerada: nada a escrever
+    # Nada a escrever: nenhuma fatia foi gerada. Os JSON, porém, são todos lidos de
+    # novo (é de onde se sabe os anos de cada série para montar a lista de membros).
+    assert leituras == []
     assert _estado(lake) == antes  # nenhum arquivo reescrito
     assert not list((lake / "ipeadata").rglob(".tmp/*"))
 
@@ -359,8 +361,11 @@ def test_migracao_nao_apaga_o_que_o_grupo_nao_cobre(
 
     res = converter.convert(raw, lake)
 
-    assert not res.errors
-    assert orfao.exists() and alheio.exists()  # a auditoria é quem acusa o resíduo
+    # Nada é apagado; o resíduo do layout antigo é listado como erro, com o caminho.
+    assert len(res.errors) == 2
+    assert any(str(orfao) in e for e in res.errors)
+    assert any(str(alheio) in e for e in res.errors)
+    assert orfao.exists() and alheio.exists()
     assert sorted(p.name for p in pasta.glob("*.parquet")) == [
         "PRECOS_INPC.parquet",
         "SERIE_ANTIGA.parquet",
@@ -389,7 +394,12 @@ def test_json_ilegivel_e_erro_e_nao_descarta_nada(raw: Path, tmp_path: Path) -> 
     assert depois == antes  # a série quebrada continua onde estava
 
 
-def test_ano_sem_data_valida_vai_para_a_quarentena(raw: Path, tmp_path: Path) -> None:
+def test_linha_sem_data_e_erro_da_serie_e_nao_cria_quarentena_de_ano(
+    raw: Path, tmp_path: Path
+) -> None:
+    lake = tmp_path / "lake"
+    assert not converter.convert(raw, lake).errors
+    antes = _linhas(lake).height
     linhas = [
         _row("PIB_ANUAL", "2020-01-01", 1.0),
         _row("PIB_ANUAL", "2021-01-01", 2.0),
@@ -397,14 +407,197 @@ def test_ano_sem_data_valida_vai_para_a_quarentena(raw: Path, tmp_path: Path) ->
     linhas[1]["VALDATA"] = "sem-data"
     _write(raw / "macro" / "PIB_ANUAL@20261110.json", {"value": linhas})
 
+    res = converter.convert(raw, lake)
+
+    assert len(res.errors) == 1
+    assert "PIB_ANUAL" in res.errors[0] and "1 linha(s) sem data" in res.errors[0]
+    assert not list(_dataset(lake).rglob("ano=__HIVE_DEFAULT_PARTITION__"))
+    # A série não foi tocada: o lake continua com as linhas da versão anterior.
+    assert _linhas(lake).height == antes
+    assert len(_linhas(lake).filter(pl.col("_origem") == "PIB_ANUAL")) == 74
+    from quantilica.core.lake_profile import profile_from_lake
+
+    perfil = profile_from_lake(lake, "ipeadata", "valores").perfil
+    assert perfil["granularidade"] == "anual"
+    assert perfil["periodos"][0] == "1950"
+
+
+def test_serie_nova_sem_data_valida_tambem_e_erro(raw: Path, tmp_path: Path) -> None:
+    _write(
+        raw / "macro" / "NOVA_X@20261110.json",
+        {"value": [{**_row("NOVA_X", "2020-01-01", 1.0), "VALDATA": None}]},
+    )
     res = converter.convert(raw, tmp_path / "lake")
+    assert len(res.errors) == 1 and "NOVA_X" in res.errors[0]
+    assert not list(_dataset(tmp_path / "lake").rglob("ano=__HIVE_DEFAULT_PARTITION__"))
+
+
+def test_json_quebrado_de_outra_serie_nao_trava_o_prune_dos_demais(
+    raw: Path, tmp_path: Path
+) -> None:
+    """PRECOS_ANO passa de mensal a anual com o JSON de CAMBIO_D quebrado: a primeira
+    sai dos grupos mensais (sem linhas duplicadas) e CAMBIO_D não perde nada."""
+    lake = tmp_path / "lake"
+    converter.convert(raw, lake)
+    antes = _linhas(lake)
+    meta = json.loads(json.dumps(META))
+    for item in meta["value"]:
+        if item["SERCODIGO"] == "PRECOS_ANO":
+            item["PERNOME"] = "Anual"
+    _write(raw / "dimensoes" / "metadados@20261110.json", meta)
+    (raw / "series" / "CAMBIO_D@20261105.json").write_text("{quebrado")
+
+    res = converter.convert(raw, lake)
+
+    assert len(res.errors) == 1 and "CAMBIO_D" in res.errors[0]
+    df = _linhas(lake)
+    ano = df.filter(pl.col("_origem") == "PRECOS_ANO")
+    assert ano.height == antes.filter(pl.col("_origem") == "PRECOS_ANO").height
+    assert ano["periodicidade"].unique().to_list() == ["anual"]  # sem cópia mensal
+    cambio = df.filter(pl.col("_origem") == "CAMBIO_D")
+    assert cambio.height == antes.filter(pl.col("_origem") == "CAMBIO_D").height == 6
+    assert df.height == antes.height  # nenhuma linha duplicada nem perdida
+    assert check_dataset(_dataset(lake)) == []
+
+
+def test_prune_so_e_desligado_nos_grupos_da_serie_que_falhou(
+    raw: Path, tmp_path: Path
+) -> None:
+    lake = tmp_path / "lake"
+    converter.convert(raw, lake)
+    # Sai do bruto uma série qualquer (PRECOS_INPC) e quebra outra (PIB_ANUAL, que só
+    # está em grupos anuais): o grupo mensal de 2020 descarta a INPC, o anual não.
+    for f in raw.glob("*/PRECOS_INPC@*.json"):
+        f.unlink()
+    (raw / "macro" / "PIB_ANUAL@20261105.json").write_text("{quebrado")
+
+    res = converter.convert(raw, lake)
+
+    assert len(res.errors) == 1 and "PIB_ANUAL" in res.errors[0]
+    df = _linhas(lake)
+    assert "PRECOS_INPC" not in set(df["_origem"].to_list())
+    assert len(df.filter(pl.col("_origem") == "PIB_ANUAL")) == 74
+
+
+def test_versao_vazia_de_serie_que_esta_no_lake_e_erro_e_nao_apaga(
+    raw: Path, tmp_path: Path
+) -> None:
+    lake = tmp_path / "lake"
+    converter.convert(raw, lake)
+    antes = _linhas(lake).height
+    _write(raw / "macro" / "PIB_ANUAL@20261110.json", {"value": []})
+    # e outra sem VALDATA/VALVALOR
+    _write(
+        raw / "macro" / "PRECOS_IPCAG@20261110.json",
+        {"value": [{"SERCODIGO": "PRECOS_IPCAG", "OUTRA": 1}]},
+    )
+
+    res = converter.convert(raw, lake)
+
+    assert len(res.errors) == 2
+    assert {e.split("série ")[1].split("@")[0] for e in res.errors} == {
+        "PIB_ANUAL",
+        "PRECOS_IPCAG",
+    }
+    assert _linhas(lake).height == antes  # nada foi apagado
+
+
+def test_versao_vazia_de_serie_so_com_parquet_antigo_nao_remove_o_antigo(
+    raw: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lake = tmp_path / "lake"
+    _legacy_convert(raw, lake, monkeypatch)
+    _write(raw / "macro" / "PRECOS_IPCAG@20261110.json", {"value": []})
+
+    res = converter.convert(raw, lake)
+
+    antigo = _dataset(lake) / "base=macro/periodicidade=mensal/PRECOS_IPCAG.parquet"
+    assert antigo.exists()
+    assert any("PRECOS_IPCAG" in e and "já está no lake" in e for e in res.errors)
+    # as outras séries migraram e a antiga delas saiu
+    assert not (antigo.parent / "PRECOS_INPC.parquet").exists()
+
+
+def test_serie_vazia_que_nunca_esteve_no_lake_so_e_pulada(
+    raw: Path, tmp_path: Path
+) -> None:
+    res = converter.convert(raw, tmp_path / "lake")  # VAZIA nunca teve linhas
+    assert not res.errors and res.skipped == 1
+
+
+def _muitas_series(raw: Path, n: int) -> list[str]:
+    codigos = [f"MUITAS_{i:03d}" for i in range(n)]
+    meta = {"value": [{"SERCODIGO": c, "PERNOME": "Anual"} for c in codigos]}
+    _write(raw / "dimensoes" / "metadados@20261101.json", meta)
+    for c in codigos:
+        _write(
+            raw / "macro" / f"{c}@20261105.json",
+            {"value": [_row(c, f"{a}-01-01", float(a)) for a in (2020, 2021)]},
+        )
+    return codigos
+
+
+def _bruto_com(tmp_path: Path, n: int) -> Path:
+    raw = tmp_path / "raw"
+    _muitas_series(raw, n)
+    return raw
+
+
+def test_visao_parcial_do_bruto_acima_do_limite_nao_apaga_nada(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("IPEADATA_FETCHER_ALLOW_PRUNE", raising=False)
+    raw = _bruto_com(tmp_path, 60)
+    lake = tmp_path / "lake"
+    assert not converter.convert(raw, lake).errors
+    antes = _linhas(lake).height
+    for i in range(26):  # 26 > max(25, 2% de 60)
+        (raw / f"macro/MUITAS_{i:03d}@20261105.json").unlink()
+
+    res = converter.convert(raw, lake)
+
+    assert len(res.errors) == 1
+    assert (
+        "26 das 60 séries" in res.errors[0]
+        and "IPEADATA_FETCHER_ALLOW_PRUNE=1" in res.errors[0]
+    )
+    assert _linhas(lake).height == antes  # nada foi descartado
+
+    monkeypatch.setenv("IPEADATA_FETCHER_ALLOW_PRUNE", "1")
+    res = converter.convert(raw, lake)
+    assert not res.errors
+    assert _linhas(lake).height == (60 - 26) * 2
+
+
+def test_visao_parcial_no_limite_ainda_aplica_o_prune(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("IPEADATA_FETCHER_ALLOW_PRUNE", raising=False)
+    raw = _bruto_com(tmp_path, 60)
+    lake = tmp_path / "lake"
+    converter.convert(raw, lake)
+    for i in range(25):  # exatamente o limite: ainda vale
+        (raw / f"macro/MUITAS_{i:03d}@20261105.json").unlink()
+
+    res = converter.convert(raw, lake)
 
     assert not res.errors
-    ds = _dataset(tmp_path / "lake")
-    assert (
-        ds / "base=macro/periodicidade=anual/ano=__HIVE_DEFAULT_PARTITION__"
-    ).is_dir()
-    assert (ds / "base=macro/periodicidade=anual/ano=2020").is_dir()
+    assert _linhas(lake).height == (60 - 25) * 2
+
+
+def test_limite_de_visao_parcial_cresce_com_o_lake(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Com 2% maior que 25 (1.500 séries), o limite é a fração; aqui, ao contrário,
+    com poucas séries qualquer perda é pequena: 3 de 10 não trava."""
+    monkeypatch.delenv("IPEADATA_FETCHER_ALLOW_PRUNE", raising=False)
+    raw = _bruto_com(tmp_path, 10)
+    lake = tmp_path / "lake"
+    converter.convert(raw, lake)
+    for i in range(3):
+        (raw / f"macro/MUITAS_{i:03d}@20261105.json").unlink()
+    assert not converter.convert(raw, lake).errors
+    assert _linhas(lake).height == 7 * 2
 
 
 def test_auditoria_do_lake_agrupado(raw: Path, tmp_path: Path) -> None:
