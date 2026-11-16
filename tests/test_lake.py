@@ -120,7 +120,7 @@ def test_convert_ipeadata_end_to_end(tmp_path: Path) -> None:
     errors_val = check_dataset(ds_val)
     assert not errors_val, f"errors in valores: {errors_val}"
     (part_val,) = list(
-        (ds_val / "base=macro" / "periodicidade=mensal").glob("*.parquet")
+        (ds_val / "base=macro" / "periodicidade=mensal" / "ano=2024").glob("*.parquet")
     )
     df_v = pl.read_parquet(part_val)
     assert df_v.height == 2
@@ -134,7 +134,9 @@ def test_convert_ipeadata_end_to_end(tmp_path: Path) -> None:
     errors_reg = check_dataset(ds_reg)
     assert not errors_reg, f"errors in valores_regional: {errors_reg}"
     (part_reg,) = list(
-        (ds_reg / "nivel=Municipios" / "periodicidade=mensal").glob("*.parquet")
+        (ds_reg / "nivel=Municipios" / "periodicidade=mensal" / "ano=2024").glob(
+            "*.parquet"
+        )
     )
     df_r = pl.read_parquet(part_reg)
     assert df_r["data"][0] == "2024-01-01"
@@ -226,9 +228,13 @@ def test_regional_nivel_is_per_row_and_periodicidade_real(tmp_path: Path) -> Non
     parts = sorted(p.name for p in ds.glob("nivel=*"))
     assert parts == ["nivel=AMC_91-00", "nivel=Estados", "nivel=Municipios"]
     for p in ds.glob("nivel=*"):
-        assert (p / "periodicidade=decenal").is_dir()
+        assert (p / "periodicidade=decenal" / "ano=1991").is_dir()
     mun = pl.read_parquet(
-        next((ds / "nivel=Municipios" / "periodicidade=decenal").glob("*.parquet"))
+        next(
+            (ds / "nivel=Municipios" / "periodicidade=decenal" / "ano=1991").glob(
+                "*.parquet"
+            )
+        )
     )
     assert mun.height == 2
 
@@ -409,7 +415,6 @@ def test_destino_nao_muda_quando_a_copia_vencedora_troca_de_pasta(
         },
     )
     assert not converter.convert(raw, lake).errors
-    arquivos = list((lake / "ipeadata").glob("valores*/**/ADH_IDHM.parquet"))
-    assert len(arquivos) == 1
-    assert "valores_regional" in arquivos[0].parts
-    assert pl.read_parquet(arquivos[0]).height == 2
+    arquivos = list((lake / "ipeadata").glob("valores*/**/*.parquet"))
+    assert arquivos and all("valores_regional" in a.parts for a in arquivos)
+    assert sum(pl.read_parquet(a).height for a in arquivos) == 2
