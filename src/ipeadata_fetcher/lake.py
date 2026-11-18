@@ -24,6 +24,7 @@ try:
         LakeWriter,
         footer_from_metadata,
         origin_matches,
+        output_id,
         sha256_file,
     )
     from quantilica.core.lake import (
@@ -56,6 +57,11 @@ VALORES_KEYS = {
     "valores_regional": ["nivel", "periodicidade", "ano"],
 }
 #: Versões gravadas em cada membro de grupo; subir uma reconverte os valores.
+#: ``CONVERTER_VERSION`` sobe também quando muda o que decide o destino de uma série
+#: sem que o bruto mude: a partição (chaves, ``ano``, periodicidade), o dataset
+#: (``valores`` ou ``valores_regional``) ou o nome do grupo. O build sem mudança
+#: confere o destino registrado só pela pasta do bruto e pelos metadados; sem o
+#: aumento, o lake gravado com a regra antiga nunca seria reorganizado.
 CONTRACT_VERSION = 1
 CONVERTER_VERSION = "1"
 
@@ -356,7 +362,12 @@ class IpeadataLakeConverter:
             if dim_key and dim_key in writers:
                 # Já no lake com este sha256: nem abre o JSON. A dimensão segue
                 # contada como convertida a cada execução (ver CHANGELOG).
-                if writers[dim_key].is_current(raw_file):
+                try:
+                    em_dia = writers[dim_key].is_current(raw_file)
+                except OSError as exc:
+                    logger.debug("Ipeadata %s: sha256 indisponível (%s)", raw_file, exc)
+                    em_dia = False
+                if em_dia:
                     res.converted += 1
                     continue
                 items = _read_json_items(raw_file)
@@ -531,6 +542,9 @@ class _Serie:
     dataset: str
     #: (primeira chave, periodicidade, ano) -> número de linhas
     destinos: dict[tuple[str | None, str | None, int | None], int]
+    #: grupos (``output_id``) que as linhas da série ocupam: vai no rodapé de cada
+    #: grupo em que ela é membro, para o próximo build saber se algum falta
+    saidas: list[str] = field(default_factory=list)
     ok: bool = True
     escrita: bool = False
 
@@ -580,6 +594,27 @@ class _Slices:
 
 def _slug(value: Any) -> str:
     return "sem" if value is None else str(value)
+
+
+def _chave_do_grupo(dataset: str, p1: str | None, per: str | None) -> str:
+    """Nome do arquivo agrupado, sem o ano (que está na pasta ``ano=``)."""
+    return "_".join([dataset, _slug(p1), _slug(per)])
+
+
+def _saidas_da_serie(
+    dataset: str, destinos: Sequence[tuple[str | None, str | None, int | None]]
+) -> list[str]:
+    """Grupos do lake (``output_id``) que uma série com estes destinos alimenta."""
+    keys = VALORES_KEYS[dataset]
+    return sorted(
+        {
+            output_id(
+                {keys[0]: p1, keys[1]: per, keys[2]: ano},
+                _chave_do_grupo(dataset, p1, per),
+            )
+            for p1, per, ano in destinos
+        }
+    )
 
 
 ALLOW_PRUNE_ENV = "IPEADATA_FETCHER_ALLOW_PRUNE"
@@ -685,9 +720,15 @@ def _convert_valores(
 
     # Build sem mudança: decide pelos rodapés do lake e pelos sidecars, sem abrir
     # o JSON de nenhuma série já registrada.
-    registradas = _pular_sem_ler_bruto(
-        raw_files, writers, periodicidades, pastas_da_serie, estados, trava, res
-    )
+    try:
+        registradas = _pular_sem_ler_bruto(
+            raw_files, writers, periodicidades, pastas_da_serie, estados, trava, res
+        )
+    except Exception as exc:
+        # Hash ou leitura que falha (montagem de rede, arquivo sumido): o caminho
+        # completo relê tudo e reporta o erro de cada série, como antes.
+        logger.debug("Ipeadata: caminho rápido abandonado (%s)", exc)
+        registradas = None
     if registradas is not None:
         res.errors.extend(avisos_trava)
         for dataset, writer in writers.items():
@@ -735,6 +776,7 @@ def _convert_valores(
                     pastas,
                     prepared.dataset,
                     destinos,
+                    _saidas_da_serie(prepared.dataset, list(destinos)),
                 )
             )
         except Exception as exc:
@@ -762,7 +804,7 @@ def _convert_valores(
             partitions = {keys[0]: p1, keys[1]: per, keys[2]: ano}
             # Sem o ano no nome: o mesmo nome em cada ``ano=`` é o que a auditoria do
             # lake reconhece como uma série repartida por ano das linhas.
-            group_key = "_".join([dataset, _slug(p1), _slug(per)])
+            group_key = _chave_do_grupo(dataset, p1, per)
             alvo = (
                 partition_dir(writer.dataset_dir, partitions) / f"{group_key}.parquet"
             )
@@ -772,7 +814,13 @@ def _convert_valores(
                 return lambda: slices.get(serie, destino)
 
             group = [
-                GroupMember(s.raw_file, fatia(s), key=s.key, sha256=s.sha256)
+                GroupMember(
+                    s.raw_file,
+                    fatia(s),
+                    key=s.key,
+                    sha256=s.sha256,
+                    origin_outputs=s.saidas,
+                )
                 for s in membros
             ]
             # Sem descartar membros se o bruto é visão parcial, ou se o arquivo que
@@ -885,6 +933,8 @@ def _pular_sem_ler_bruto(
         return digests[key]
 
     meus: set[str] = set()
+    #: grupos que o rodapé declara para cada série do alvo (``origin_outputs``)
+    declaradas: dict[str, list[str]] = {}
     sem_registro: list[Path] = []
     mapa: dict[str, str | None] | None = None
     for key, raw_file in por_chave.items():
@@ -900,6 +950,12 @@ def _pular_sem_ler_bruto(
         digest = sha(key)
         pastas = pastas_da_serie.get(key, set())
         if "regional" in pastas and dataset != "valores_regional":
+            return None
+        if dataset == "valores_regional" and not pastas & {"regional", "social"}:
+            # Saiu de ``regional`` (e não é da ``social``, cujas linhas trazem
+            # NIVNOME): o destino registrado não vale mais. Uma série de ``macro``
+            # ou ``series`` com NIVNOME nas linhas também cai aqui e fica no
+            # caminho completo, porque só os dados dizem.
             return None
         if mapa is None:
             mapa = periodicidades.barata()
@@ -922,6 +978,20 @@ def _pular_sem_ler_bruto(
             ):
                 return None
         if dataset in writers:
+            # Todos os grupos que a série ocupa existem? Um build que falhou num
+            # grupo deixa os outros em dia; só a declaração do rodapé enxerga o que
+            # faltou. Sem ela (lake gravado antes), reconverte uma vez.
+            writer = writers[dataset]
+            if not writer.origin_complete(
+                por_chave[key],
+                contract_version=CONTRACT_VERSION,
+                converter_version=CONVERTER_VERSION,
+            ):
+                return None
+            saidas = writer.origin_outputs(por_chave[key])
+            if not saidas:
+                return None
+            declaradas[key] = saidas
             meus.add(key)
 
     # Cada arquivo agrupado dos datasets do alvo, conferido pelo mesmo teste do
@@ -950,8 +1020,8 @@ def _pular_sem_ler_bruto(
                 return None
             if partition_dir(writer.dataset_dir, partitions) != path.parent:
                 return None
-            group_key = "_".join(
-                [dataset, _slug(partitions[chaves[0]]), _slug(partitions[chaves[1]])]
+            group_key = _chave_do_grupo(
+                dataset, partitions[chaves[0]], partitions[chaves[1]]
             )
             if path.name != f"{group_key}.parquet":
                 return None
@@ -961,6 +1031,7 @@ def _pular_sem_ler_bruto(
                     _nunca_lida,
                     key=k,
                     sha256=sha(k),
+                    origin_outputs=declaradas.get(k),
                 )
                 for k in entradas
                 if k in por_chave
