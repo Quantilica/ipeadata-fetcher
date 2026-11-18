@@ -428,6 +428,33 @@ def test_serie_que_sai_da_pasta_regional_muda_de_dataset(
     assert codigo not in _membros_de_dataset(lake / "ipeadata" / "valores_regional")
 
 
+def test_serie_que_sai_da_pasta_regional_para_social_muda_de_dataset(
+    raw: Path, tmp_path: Path
+) -> None:
+    lake = tmp_path / "lake"
+    codigo = "REG_X"
+    linhas = [_row(codigo, f"{a}-01-01", float(a)) for a in (2000, 2001)]
+    regional = raw / "regional" / f"{codigo}@20261105.json"
+    _write(regional, {"value": linhas})
+    _sidecar(regional)
+    assert not converter.convert(raw, lake).errors
+    assert list((lake / "ipeadata" / "valores_regional").rglob("*.parquet"))
+
+    # os mesmos bytes (sem NIVNOME) noutra pasta: o sha256 não muda, o destino sim
+    social = raw / "social" / regional.name
+    social.write_bytes(regional.read_bytes())
+    _sidecar(social)
+    regional.unlink()
+    regional.with_name(regional.name + ".manifest.json").unlink()
+
+    res = converter.convert(raw, lake)
+
+    assert not res.errors and res.converted >= 1
+    em_valores = _membros_de_dataset(lake / "ipeadata" / "valores")
+    assert codigo in em_valores
+    assert codigo not in _membros_de_dataset(lake / "ipeadata" / "valores_regional")
+
+
 def _membros_de_dataset(diretorio: Path) -> set[str]:
     achados: set[str] = set()
     for arquivo in diretorio.rglob("*.parquet"):

@@ -896,10 +896,13 @@ def _pular_sem_ler_bruto(
     intacto). Só vale o "tudo em dia" quando:
 
     * cada série do bruto está registrada nos membros de grupos de **um** dataset,
-      com o sha256 atual (do sidecar, sem ler o arquivo) e as versões do conversor;
+      com o sha256 atual (do sidecar, sem ler o arquivo, calculado uma vez por série
+      e repassado ao writer) e as versões do conversor;
     * o destino registrado bate com o que não depende dos dados: a pasta do bruto
       (``regional``, ``social``) e a periodicidade dos metadados, lida da dimensão
-      ``series`` do lake quando ela vem deste mesmo bruto;
+      ``series`` do lake quando ela vem deste mesmo bruto; uma série em
+      ``valores_regional`` que não está em ``regional`` só pula se algum registro
+      tem ``nivel`` (prova do NIVNOME nos dados, que o mesmo sha256 mantém);
     * cada arquivo agrupado do lake passa em ``LakeWriter.is_current_group`` com
       os membros que seus próprios rodapés listam (sem órfãos);
     * a série sem registro algum não é do layout antigo e, relida, é vazia ou de
@@ -951,15 +954,17 @@ def _pular_sem_ler_bruto(
         pastas = pastas_da_serie.get(key, set())
         if "regional" in pastas and dataset != "valores_regional":
             return None
-        if dataset == "valores_regional" and not pastas & {"regional", "social"}:
-            # Saiu de ``regional`` (e não é da ``social``, cujas linhas trazem
-            # NIVNOME): o destino registrado não vale mais. Uma série de ``macro``
-            # ou ``series`` com NIVNOME nas linhas também cai aqui e fica no
-            # caminho completo, porque só os dados dizem.
-            return None
         if mapa is None:
             mapa = periodicidades.barata()
         esperada = encode_partition_value(mapa.get(key))
+        # Fora de ``regional``, só o NIVNOME nos dados mantém a série em
+        # ``valores_regional`` (uma série de ``social`` sem ele vai para ``valores``
+        # com ``base=social``; ``macro`` e ``series`` idem). A partição ``nivel``
+        # registrada prova o NIVNOME, e o sha256 igual garante que os dados são os
+        # mesmos; sem prova (tudo em ``__HIVE_DEFAULT_PARTITION__``), só os dados
+        # dizem e vale o caminho completo.
+        precisa_nivel = dataset == "valores_regional" and "regional" not in pastas
+        prova_nivel = False
         for _, path, entrada in regs:
             if (
                 entrada.get("origin_sha256") != digest
@@ -973,10 +978,17 @@ def _pular_sem_ler_bruto(
                 return None
             if partes.get(VALORES_KEYS[dataset][1]) != esperada:
                 return None
+            if partes.get(VALORES_KEYS[dataset][0]) not in (
+                None,
+                HIVE_DEFAULT_PARTITION,
+            ):
+                prova_nivel = True
             if dataset == "valores" and partes.get("base") != (
                 "social" if "social" in pastas else "macro"
             ):
                 return None
+        if precisa_nivel and not prova_nivel:
+            return None
         if dataset in writers:
             # Todos os grupos que a série ocupa existem? Um build que falhou num
             # grupo deixa os outros em dia; só a declaração do rodapé enxerga o que
@@ -986,9 +998,10 @@ def _pular_sem_ler_bruto(
                 por_chave[key],
                 contract_version=CONTRACT_VERSION,
                 converter_version=CONVERTER_VERSION,
+                digest=digest,
             ):
                 return None
-            saidas = writer.origin_outputs(por_chave[key])
+            saidas = writer.origin_outputs(por_chave[key], digest=digest)
             if not saidas:
                 return None
             declaradas[key] = saidas
