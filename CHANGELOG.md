@@ -8,6 +8,9 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 ## [Não lançado]
 
 ### Alterado
+- **Build do lake sem mudança não lê o bruto.** Com tudo em dia, `convert(datasets=[...])` decide só por `stat`, sidecars `.manifest.json` e rodapés de Parquet do lake: não abre os JSON das séries nem os de metadados, e o sha256 vem do sidecar (`quantilica.analytics.lake.sha256_file`) em vez de reler o arquivo. As séries são conferidas pelos membros dos arquivos agrupados (sha256 e versões do conversor), pela pasta de origem e pela periodicidade registrada; esta vem da dimensão `series` do lake quando ela foi gravada a partir do mesmo arquivo de metadados, senão do JSON. Só a série sem nenhum registro no lake (por exemplo, a de lista vazia) ainda é aberta. Qualquer mudança (série nova ou revisada, sidecar ausente, `force`, membro órfão, visão parcial do bruto) cai no caminho completo de antes, com o mesmo resultado.
+- As dimensões (`series`, `temas`, `territorios`, `paises`) já gravadas pulam a leitura do JSON, mas seguem contadas como convertidas.
+- Uma execução só de dimensões não abre mais as séries de valores (antes lia todas e descartava o resultado); por isso `skipped` não conta mais as séries vazias nessa execução.
 - CI e infraestrutura alinhados ao template (fetcher-template v0.2.1).
 
 ## [0.6.0] - 2026-11-16

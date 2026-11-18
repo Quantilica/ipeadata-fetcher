@@ -51,7 +51,9 @@ def _legacy_valores(raw_files, writers, periodicidades, pastas_da_serie, res) ->
     }
     for raw in raw_files:
         pastas = pastas_da_serie.get(file_key(raw), set())
-        prepared = lake_mod._prepare_series(raw, pastas, periodicidades, quiet=True)
+        prepared = lake_mod._prepare_series(
+            raw, pastas, periodicidades.bruta(), quiet=True
+        )
         if prepared is None:
             res.skipped += 1
             continue

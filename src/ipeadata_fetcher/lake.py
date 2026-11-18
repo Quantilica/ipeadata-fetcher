@@ -10,7 +10,7 @@ import tempfile
 import unicodedata
 from collections.abc import Sequence
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -23,11 +23,15 @@ try:
         GroupMember,
         LakeWriter,
         footer_from_metadata,
+        origin_matches,
+        sha256_file,
     )
-    from quantilica.core.files import sha256_file
     from quantilica.core.lake import (
+        HIVE_DEFAULT_PARTITION,
         DatasetDescriptor,
+        encode_partition_value,
         file_key,
+        parse_partition_path,
         partition_dir,
         partition_types_for,
         select_current,
@@ -100,6 +104,83 @@ def _periodicidades(meta_items: list[dict[str, Any]]) -> dict[str, str | None]:
                 item.get("PERNOME") or item.get("SERPERIODICIDADE"), lower=True
             )
     return result
+
+
+def _periodicidades_do_df(df: pl.DataFrame) -> dict[str, str | None]:
+    """Como ``_periodicidades``, mas sobre a dimensão ``series`` já no lake.
+
+    O Parquet da dimensão tem as colunas do JSON em minúsculas (``sercodigo``,
+    ``pernome``, ``serperiodicidade``), então dá o mesmo mapa sem reabrir o bruto.
+    """
+    colunas = [
+        c for c in ("sercodigo", "pernome", "serperiodicidade") if c in df.columns
+    ]
+    result: dict[str, str | None] = {}
+    for row in df.select(colunas).iter_rows(named=True):
+        code = row.get("sercodigo")
+        if code:
+            result[str(code)] = _partition_value(
+                row.get("pernome") or row.get("serperiodicidade"), lower=True
+            )
+    return result
+
+
+class _Periodicidades:
+    """``SERCODIGO -> periodicidade``, calculada só quando alguém precisa.
+
+    ``barata`` evita abrir o JSON de metadados: se a dimensão ``series`` do lake
+    já foi gravada a partir deste mesmo bruto (sha256 do rodapé), lê o mapa dela.
+    Se não, ou se qualquer leitura falha, cai em ``bruta``, que lê os JSON.
+    """
+
+    def __init__(
+        self, arquivos: Sequence[Path], series_dir: Path, *, force: bool
+    ) -> None:
+        self.arquivos = list(arquivos)
+        self.series_dir = series_dir
+        self.force = force
+        self._bruta: dict[str, str | None] | None = None
+        self._barata: dict[str, str | None] | None = None
+
+    def bruta(self) -> dict[str, str | None]:
+        if self._bruta is None:
+            result: dict[str, str | None] = {}
+            for raw_file in self.arquivos:
+                result.update(_periodicidades(_read_json_items(raw_file)))
+            self._bruta = result
+        return self._bruta
+
+    def barata(self) -> dict[str, str | None]:
+        if self._barata is not None:
+            return self._barata
+        if self._bruta is not None:
+            return self._bruta
+        if not self.force:
+            try:
+                self._barata = self._do_lake()
+            except Exception as exc:
+                logger.debug("Ipeadata: metadados relidos do bruto (%s)", exc)
+        if self._barata is None:
+            self._barata = self.bruta()
+        return self._barata
+
+    def _do_lake(self) -> dict[str, str | None]:
+        result: dict[str, str | None] = {}
+        for raw_file in self.arquivos:
+            key = file_key(raw_file)
+            if not origin_matches(self.series_dir, key, sha256_file(raw_file)):
+                raise LookupError(f"{key}: dimensão series do lake desatualizada")
+            partes = [
+                p
+                for p in sorted(self.series_dir.glob("*.parquet"))
+                if re.fullmatch(rf"{re.escape(key)}(-\d{{3}})?\.parquet", p.name)
+            ]
+            df = pl.concat(
+                [pl.read_parquet(p, hive_partitioning=False) for p in partes],
+                how="diagonal_relaxed",
+            )
+            result.update(_periodicidades_do_df(df))
+        return result
 
 
 #: Pastas do bruto que guardam valores; em empate de carimbo vence a primeira.
@@ -255,11 +336,13 @@ class IpeadataLakeConverter:
             )
         active_files = sorted(dimensoes + valores_brutos)
 
-        # Periodicidade real de cada serie, do arquivo de metadados (PERNOME).
-        periodicidades: dict[str, str | None] = {}
-        for raw_file in active_files:
-            if file_key(raw_file).lower() in ("metadados", "series"):
-                periodicidades.update(_periodicidades(_read_json_items(raw_file)))
+        # Periodicidade real de cada serie, do arquivo de metadados (PERNOME): só é
+        # lida (do lake ou do bruto) se algum dataset de valores está no alvo.
+        periodicidades = _Periodicidades(
+            [f for f in active_files if file_key(f).lower() in ("metadados", "series")],
+            lake_path / self.source_id / "series",
+            force=force,
+        )
 
         # First convert dimensions
         for raw_file in active_files:
@@ -271,6 +354,11 @@ class IpeadataLakeConverter:
                 dim_key = stem
 
             if dim_key and dim_key in writers:
+                # Já no lake com este sha256: nem abre o JSON. A dimensão segue
+                # contada como convertida a cada execução (ver CHANGELOG).
+                if writers[dim_key].is_current(raw_file):
+                    res.converted += 1
+                    continue
                 items = _read_json_items(raw_file)
                 if not items:
                     continue
@@ -285,18 +373,20 @@ class IpeadataLakeConverter:
                     res.errors.append(f"Erro ao converter dimensão {dim_key}: {exc}")
 
         # Valores: um Parquet por (dataset, base|nivel, periodicidade, ano), com todas
-        # as séries que têm observações naquele ano.
-        _convert_valores(
-            [
-                f
-                for f in active_files
-                if file_key(f).lower() not in _DIMENSOES_BRUTO and f.is_file()
-            ],
-            writers,
-            periodicidades,
-            pastas_da_serie,
-            res,
-        )
+        # as séries que têm observações naquele ano. Uma tarefa só de dimensões não
+        # abre nenhuma série (antes lia todas para descartar o resultado).
+        if any(d in writers for d in VALORES_KEYS):
+            _convert_valores(
+                [
+                    f
+                    for f in active_files
+                    if file_key(f).lower() not in _DIMENSOES_BRUTO and f.is_file()
+                ],
+                writers,
+                periodicidades,
+                pastas_da_serie,
+                res,
+            )
 
         return res
 
@@ -506,6 +596,8 @@ class _LakeState:
     groups: dict[Path, set[str]]
     #: chaves dos Parquets por série do layout antigo
     legacy: set[str]
+    #: arquivo agrupado -> entrada de cada membro (sha256, versões, linhas)
+    entries: dict[Path, dict[str, dict[str, Any]]] = field(default_factory=dict)
 
     @property
     def known(self) -> set[str]:
@@ -515,8 +607,9 @@ class _LakeState:
 def _lake_state(dataset_dir: Path, dataset: str) -> _LakeState:
     groups: dict[Path, set[str]] = {}
     legacy: set[str] = set()
+    entries: dict[Path, dict[str, dict[str, Any]]] = {}
     if not dataset_dir.is_dir():
-        return _LakeState(groups, legacy)
+        return _LakeState(groups, legacy, entries)
     for path in sorted(dataset_dir.rglob("*.parquet")):
         if ".tmp" in path.relative_to(dataset_dir).parts:
             continue
@@ -528,16 +621,17 @@ def _lake_state(dataset_dir: Path, dataset: str) -> _LakeState:
         ):
             continue
         if META_MEMBERS in meta:
-            groups[path] = set(json.loads(meta[META_MEMBERS]))
+            entries[path] = json.loads(meta[META_MEMBERS])
+            groups[path] = set(entries[path])
         elif key := meta.get("quantilica.file_key"):
             legacy.add(key)
-    return _LakeState(groups, legacy)
+    return _LakeState(groups, legacy, entries)
 
 
 def _convert_valores(
     raw_files: Sequence[Path],
     writers: dict[str, LakeWriter],
-    periodicidades: dict[str, str | None],
+    periodicidades: _Periodicidades,
     pastas_da_serie: dict[str, set[str]],
     res: ConvertResult,
 ) -> None:
@@ -570,13 +664,52 @@ def _convert_valores(
             estados[dataset] = _lake_state(writer.dataset_dir, dataset)
             presenca |= estados[dataset].known | estados[dataset].legacy
 
+    # Visão parcial do bruto: séries que o lake conhece e o bruto não tem mais.
+    todas = {file_key(f) for f in raw_files}
+    trava: set[str] = set()
+    avisos_trava: list[str] = []
+    if os.environ.get(ALLOW_PRUNE_ENV) != "1":
+        for dataset, estado in estados.items():
+            conhecidas = estado.known
+            ausentes = conhecidas - todas
+            limite = max(MAX_MISSING_ABS, MAX_MISSING_FRAC * len(conhecidas))
+            if len(ausentes) > limite:
+                trava.add(dataset)
+                avisos_trava.append(
+                    f"ipeadata/{dataset}: {len(ausentes)} das {len(conhecidas)} séries "
+                    f"do lake não estão no bruto (limite {limite:g}); parece visão "
+                    "parcial do bruto. Nenhuma série foi descartada ou removida do "
+                    f"lake nesta execução. Se o bruto está certo, rode com "
+                    f"{ALLOW_PRUNE_ENV}=1."
+                )
+
+    # Build sem mudança: decide pelos rodapés do lake e pelos sidecars, sem abrir
+    # o JSON de nenhuma série já registrada.
+    registradas = _pular_sem_ler_bruto(
+        raw_files, writers, periodicidades, pastas_da_serie, estados, trava, res
+    )
+    if registradas is not None:
+        res.errors.extend(avisos_trava)
+        for dataset, writer in writers.items():
+            if dataset not in VALORES_KEYS:
+                continue
+            if dataset not in trava:
+                _remove_legacy_series(writer.dataset_dir, dataset, registradas)
+            for path in _old_layout_leftovers(writer.dataset_dir):
+                res.errors.append(
+                    f"ipeadata/{dataset}: Parquet do layout antigo (por série, fora "
+                    f"de ano=) mantido, confira e apague à mão se for resíduo: {path}"
+                )
+        return
+
+    periodicidades_do_bruto = periodicidades.bruta()
     series: list[_Serie] = []
     falhas: set[str] = set()  # chaves de séries que não puderam ser lidas
     for raw_file in raw_files:
         key = file_key(raw_file)
         pastas = pastas_da_serie.get(key, set())
         try:
-            prepared = _prepare_series(raw_file, pastas, periodicidades)
+            prepared = _prepare_series(raw_file, pastas, periodicidades_do_bruto)
             if prepared is None:
                 if key in presenca:
                     falhas.add(key)
@@ -608,30 +741,14 @@ def _convert_valores(
             res.errors.append(f"Erro ao converter série {raw_file.name}: {exc}")
             falhas.add(key)
 
-    # Visão parcial do bruto: séries que o lake conhece e o bruto não tem mais.
-    todas = {file_key(f) for f in raw_files}
-    trava: set[str] = set()
-    if os.environ.get(ALLOW_PRUNE_ENV) != "1":
-        for dataset, estado in estados.items():
-            conhecidas = estado.known
-            ausentes = conhecidas - todas
-            limite = max(MAX_MISSING_ABS, MAX_MISSING_FRAC * len(conhecidas))
-            if len(ausentes) > limite:
-                trava.add(dataset)
-                res.errors.append(
-                    f"ipeadata/{dataset}: {len(ausentes)} das {len(conhecidas)} séries "
-                    f"do lake não estão no bruto (limite {limite:g}); parece visão "
-                    "parcial do bruto. Nenhuma série foi descartada ou removida do "
-                    f"lake nesta execução. Se o bruto está certo, rode com "
-                    f"{ALLOW_PRUNE_ENV}=1."
-                )
+    res.errors.extend(avisos_trava)
 
     grupos: dict[tuple[str, str | None, str | None, int | None], list[_Serie]] = {}
     for serie in sorted(series, key=lambda x: x.key):
         for p1, per, ano in serie.destinos:
             grupos.setdefault((serie.dataset, p1, per, ano), []).append(serie)
 
-    slices = _Slices(periodicidades)
+    slices = _Slices(periodicidades_do_bruto)
     planned: dict[str, set[Path]] = {d: set() for d in writers}
     dataset_failed: set[str] = set()
     try:
@@ -709,6 +826,173 @@ def _convert_valores(
                 f"ipeadata/{dataset}: Parquet do layout antigo (por série, fora de "
                 f"ano=) mantido, confira e apague à mão se for resíduo: {path}"
             )
+
+
+def _nunca_lida() -> pl.DataFrame:
+    raise AssertionError("membro lido durante a checagem de grupo em dia")
+
+
+def _pular_sem_ler_bruto(
+    raw_files: Sequence[Path],
+    writers: dict[str, LakeWriter],
+    periodicidades: _Periodicidades,
+    pastas_da_serie: dict[str, set[str]],
+    estados: dict[str, _LakeState],
+    trava: set[str],
+    res: ConvertResult,
+) -> set[str] | None:
+    """Decide só por stat, sidecars e rodapés se os valores já estão no lake.
+
+    Devolve as chaves das séries registradas nos datasets do alvo (contadas em
+    ``res.skipped``), ou ``None`` se algo exige ler os dados (``res`` fica
+    intacto). Só vale o "tudo em dia" quando:
+
+    * cada série do bruto está registrada nos membros de grupos de **um** dataset,
+      com o sha256 atual (do sidecar, sem ler o arquivo) e as versões do conversor;
+    * o destino registrado bate com o que não depende dos dados: a pasta do bruto
+      (``regional``, ``social``) e a periodicidade dos metadados, lida da dimensão
+      ``series`` do lake quando ela vem deste mesmo bruto;
+    * cada arquivo agrupado do lake passa em ``LakeWriter.is_current_group`` com
+      os membros que seus próprios rodapés listam (sem órfãos);
+    * a série sem registro algum não é do layout antigo e, relida, é vazia ou de
+      outro dataset (só essas são abertas).
+
+    Com ``force`` ou qualquer dúvida devolve ``None`` e o caminho completo roda.
+    """
+    if not writers or any(w.force for w in writers.values()):
+        return None
+    alvo = [d for d in writers if d in VALORES_KEYS]
+    if not alvo:
+        return None
+    raiz = writers[alvo[0]].dataset_dir.parent
+    todos = {d: estados.get(d) or _lake_state(raiz / d, d) for d in VALORES_KEYS}
+    legacy: set[str] = set().union(*(estados[d].legacy for d in alvo))
+
+    por_chave = {file_key(f): f for f in raw_files}
+    if len(por_chave) != len(raw_files):
+        return None
+    registros: dict[str, list[tuple[str, Path, dict[str, Any]]]] = {}
+    for dataset, estado in todos.items():
+        for path, entradas in estado.entries.items():
+            for key, entrada in entradas.items():
+                registros.setdefault(key, []).append((dataset, path, entrada))
+
+    digests: dict[str, str] = {}
+
+    def sha(key: str) -> str:
+        if key not in digests:
+            digests[key] = sha256_file(por_chave[key])
+        return digests[key]
+
+    meus: set[str] = set()
+    sem_registro: list[Path] = []
+    mapa: dict[str, str | None] | None = None
+    for key, raw_file in por_chave.items():
+        regs = registros.get(key)
+        if not regs:
+            if key in legacy:
+                return None
+            sem_registro.append(raw_file)
+            continue
+        if len({d for d, _, _ in regs}) > 1:
+            return None
+        dataset = regs[0][0]
+        digest = sha(key)
+        pastas = pastas_da_serie.get(key, set())
+        if "regional" in pastas and dataset != "valores_regional":
+            return None
+        if mapa is None:
+            mapa = periodicidades.barata()
+        esperada = encode_partition_value(mapa.get(key))
+        for _, path, entrada in regs:
+            if (
+                entrada.get("origin_sha256") != digest
+                or entrada.get("contract_version") != CONTRACT_VERSION
+                or entrada.get("converter_version") != CONVERTER_VERSION
+            ):
+                return None
+            try:
+                partes = parse_partition_path(path, raiz / dataset)
+            except ValueError:
+                return None
+            if partes.get(VALORES_KEYS[dataset][1]) != esperada:
+                return None
+            if dataset == "valores" and partes.get("base") != (
+                "social" if "social" in pastas else "macro"
+            ):
+                return None
+        if dataset in writers:
+            meus.add(key)
+
+    # Cada arquivo agrupado dos datasets do alvo, conferido pelo mesmo teste do
+    # write_group (sha256 dos membros já conhecido: nada é lido nem calculado).
+    for dataset in alvo:
+        writer = writers[dataset]
+        chaves = VALORES_KEYS[dataset]
+        for path, entradas in todos[dataset].entries.items():
+            try:
+                partes = parse_partition_path(path, writer.dataset_dir)
+                if (
+                    list(partes) != chaves
+                    or partes[chaves[2]] == HIVE_DEFAULT_PARTITION
+                ):
+                    return None
+                partitions: dict[str, Any] = {
+                    chaves[0]: None
+                    if partes[chaves[0]] == HIVE_DEFAULT_PARTITION
+                    else partes[chaves[0]],
+                    chaves[1]: None
+                    if partes[chaves[1]] == HIVE_DEFAULT_PARTITION
+                    else partes[chaves[1]],
+                    chaves[2]: int(partes[chaves[2]]),
+                }
+            except ValueError:
+                return None
+            if partition_dir(writer.dataset_dir, partitions) != path.parent:
+                return None
+            group_key = "_".join(
+                [dataset, _slug(partitions[chaves[0]]), _slug(partitions[chaves[1]])]
+            )
+            if path.name != f"{group_key}.parquet":
+                return None
+            membros = [
+                GroupMember(
+                    por_chave[k],
+                    _nunca_lida,
+                    key=k,
+                    sha256=sha(k),
+                )
+                for k in entradas
+                if k in por_chave
+            ]
+            if not membros:
+                return None
+            if not writer.is_current_group(
+                group_key,
+                membros,
+                partitions=partitions,
+                contract_version=CONTRACT_VERSION,
+                converter_version=CONVERTER_VERSION,
+                prune=dataset not in trava,
+            ):
+                return None
+
+    # Sem registro: vazia (conta como pulada) ou de outro dataset (nem conta).
+    vazias = 0
+    for raw_file in sem_registro:
+        key = file_key(raw_file)
+        try:
+            prepared = _prepare_series(
+                raw_file, pastas_da_serie.get(key, set()), periodicidades.barata()
+            )
+        except Exception:
+            return None
+        if prepared is None:
+            vazias += 1
+        elif prepared.dataset in writers:
+            return None
+    res.skipped += len(meus) + vazias
+    return meus
 
 
 def _old_layout_leftovers(dataset_dir: Path) -> list[Path]:
