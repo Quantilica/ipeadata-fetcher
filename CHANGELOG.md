@@ -5,9 +5,10 @@ Todas as alterações notáveis neste projeto serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/),
 e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
-## [Não lançado]
+## [0.6.1] - 2026-11-19
 
 ### Alterado
+
 - **Build do lake sem mudança não lê o bruto.** Com tudo em dia, `convert(datasets=[...])` decide só por `stat`, sidecars `.manifest.json` e rodapés de Parquet do lake: não abre os JSON das séries nem os de metadados, e o sha256 vem do sidecar (`quantilica.analytics.lake.sha256_file`) em vez de reler o arquivo. As séries são conferidas pelos membros dos arquivos agrupados (sha256 e versões do conversor), pela pasta de origem e pela periodicidade registrada; esta vem da dimensão `series` do lake quando ela foi gravada a partir do mesmo arquivo de metadados, senão do JSON. Só a série sem nenhum registro no lake (por exemplo, a de lista vazia) ainda é aberta. Qualquer mudança (série nova ou revisada, sidecar ausente, `force`, membro órfão, visão parcial do bruto) cai no caminho completo de antes, com o mesmo resultado.
 - **Conversão interrompida deixa de virar pulo permanente.** Cada grupo de valores passa a declarar, no rodapé de cada membro (`GroupMember.origin_outputs`), todos os grupos que a série ocupa (um por ano, e por nível nas regionais), e o caminho rápido do build sem mudança só pula uma série quando `LakeWriter.origin_complete` confirma que todos existem, além do sha256 e das versões do conversor. Antes, um build que falhava num grupo novo de uma série revisada deixava os outros grupos em dia e o grupo faltante nunca era tentado de novo. Lake gravado antes desta versão não tem a declaração: a primeira execução depois da atualização reconverte os valores (uma vez), e as seguintes voltam a pular. Exige `quantilica-analytics>=0.15.0`.
 - Série que sai da pasta `regional` (mesmo bruto, outra pasta) deixa de ser pulada pelo registro de `valores_regional`: o build reconverte e a série vai para o dataset certo. Vale também para a pasta `social`: uma série sem `NIVNOME` que saiu de `regional` para `social` deve ir para `valores` com `base=social`, e o caminho rápido a pulava. Fora de `regional`, uma série registrada em `valores_regional` só é pulada se algum registro tem `nivel` diferente de `__HIVE_DEFAULT_PARTITION__` (prova do `NIVNOME` nos dados, que o mesmo sha256 mantém); sem essa prova segue o caminho completo. O sha256 já calculado por série é repassado a `origin_complete`/`origin_outputs` (`digest=`), sem reler o sidecar.
@@ -16,6 +17,10 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 - As dimensões (`series`, `temas`, `territorios`, `paises`) já gravadas pulam a leitura do JSON, mas seguem contadas como convertidas.
 - Uma execução só de dimensões não abre mais as séries de valores (antes lia todas e descartava o resultado); por isso `skipped` não conta mais as séries vazias nessa execução.
 - CI e infraestrutura alinhados ao template (fetcher-template v0.2.1).
+
+### Corrigido
+
+- `lake`: o ano de `VALDATA` é convertido sem modo estrito. Com versões recentes do `polars` o ramo da conversão era avaliado também nas linhas sem data AAAA-, e a série com uma data inválida falhava com o erro de conversão do `polars` em vez do erro da série ("N linha(s) sem data"); a linha sem data continua sendo erro da série e não cria partição de ano nula.
 
 ## [0.6.0] - 2026-11-16
 ### Alterado
