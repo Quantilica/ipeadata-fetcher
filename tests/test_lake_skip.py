@@ -15,7 +15,11 @@ pytest.importorskip("quantilica.analytics.lake")
 import polars as pl  # noqa: E402
 import quantilica.analytics.lake as analytics_lake  # noqa: E402
 import quantilica.core.manifests as manifests  # noqa: E402
-from quantilica.analytics.lake import GroupMember, LakeWriter, check_dataset  # noqa: E402
+from quantilica.analytics.lake import (  # noqa: E402
+    GroupMember,
+    LakeWriter,
+    check_dataset,
+)
 
 import ipeadata_fetcher.lake as lake_mod  # noqa: E402
 from ipeadata_fetcher.lake import converter  # noqa: E402
