@@ -417,7 +417,7 @@ def _year(data: pl.Expr) -> pl.Expr:
     """Ano (int) dos 4 primeiros caracteres de ``data``; nulo se não for AAAA-."""
     return (
         pl.when(data.str.contains(r"^\d{4}-"))
-        .then(data.str.slice(0, 4).cast(pl.Int64))
+        .then(data.str.slice(0, 4).cast(pl.Int64, strict=False))
         .otherwise(None)
     )
 
