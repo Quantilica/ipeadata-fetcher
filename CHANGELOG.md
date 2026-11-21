@@ -5,6 +5,12 @@ Todas as alterações notáveis neste projeto serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/),
 e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [Não lançado]
+
+### Alterado
+
+- Sem `DATA_DIR`, o diretório de dados deixa de ser `~/data` e passa a ser `$XDG_DATA_HOME/quantilica` (ou `~/.local/share/quantilica`). Quem define `DATA_DIR` não muda de caminho.
+
 ## [0.6.1] - 2026-11-19
 
 ### Alterado

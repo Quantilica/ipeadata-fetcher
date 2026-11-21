@@ -286,6 +286,13 @@ _backfill_options = {
 }
 
 
+def _default_data_dir() -> Path:
+    """Padrão XDG quando ``DATA_DIR`` não está definido."""
+    xdg = os.environ.get("XDG_DATA_HOME")
+    base = Path(xdg).expanduser() if xdg else Path.home() / ".local" / "share"
+    return base / "quantilica"
+
+
 @fetcher.app.command(
     name="backfill",
     help="Carga histórica exaustiva de séries do Ipeadata (JSON). Diferente do "
@@ -364,9 +371,8 @@ def _backfill_command(
         say("Nenhuma série corresponde aos filtros.")
         raise typer.Exit(0)
 
-    base_dir = output or (
-        Path(os.environ.get("DATA_DIR", "~/data")).expanduser() / "ipeadata"
-    )
+    raiz = Path(os.environ.get("DATA_DIR") or _default_data_dir()).expanduser()
+    base_dir = output or (raiz / "ipeadata")
     out_dir = base_dir / "series"
     today = dt.date.today().strftime("%Y%m%d")
 
