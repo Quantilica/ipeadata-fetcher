@@ -5,6 +5,8 @@ from __future__ import annotations
 import unicodedata
 from typing import Any
 
+from quantilica.core.exceptions import CorruptPayloadError
+
 from ._catalog_base import DatasetEntry, GroupInfo, static_dataset
 from .client import IpeadataClient
 from .constants import (
@@ -146,7 +148,13 @@ def _fetch_all_series() -> list[dict[str, Any]]:
     global _ALL_SERIES_CACHE
     if _ALL_SERIES_CACHE is None:
         client = IpeadataClient()
-        _ALL_SERIES_CACHE = client.get_metadados()
+        series = client.get_metadados()
+        if not series:
+            # Sem metadados não há catálogo; não guardar no cache.
+            raise CorruptPayloadError(
+                "Metadados do Ipeadata vieram vazios (0 séries); catálogo indisponível"
+            )
+        _ALL_SERIES_CACHE = series
     return _ALL_SERIES_CACHE
 
 

@@ -5,6 +5,8 @@ import pytest
 from ipeadata_fetcher import catalog
 from ipeadata_fetcher.catalog import GROUP_ALIASES, GROUPS, list_datasets
 
+_REAL_FETCH_ALL_SERIES = catalog._fetch_all_series
+
 
 @pytest.fixture(autouse=True)
 def offline_metadados(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -166,3 +168,19 @@ def test_check_das_dimensoes_vira_skip_quando_o_sidecar_existe(tmp_path) -> None
         after = _ipeadata_check_entry(entry, tmp_path)
         assert after.action == "skip-up-to-date"
         assert after.local_path == str(local)
+
+
+def test_metadados_vazios_levantam_e_nao_vao_para_o_cache(monkeypatch) -> None:
+    from quantilica.core.exceptions import CorruptPayloadError
+
+    class _Vazio:
+        def get_metadados(self):
+            return []
+
+    # Desfaz o dublê automático: aqui vale a função real.
+    monkeypatch.setattr(catalog, "_fetch_all_series", _REAL_FETCH_ALL_SERIES)
+    monkeypatch.setattr(catalog, "_ALL_SERIES_CACHE", None)
+    monkeypatch.setattr(catalog, "IpeadataClient", _Vazio)
+    with pytest.raises(CorruptPayloadError):
+        list_datasets("all")
+    assert catalog._ALL_SERIES_CACHE is None

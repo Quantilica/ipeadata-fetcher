@@ -266,7 +266,8 @@ class IpeadataLakeConverter:
         input_path = Path(input_dir)
         lake_path = Path(lake_dir)
 
-        if not input_path.exists():
+        if not input_path.is_dir():
+            res.errors.append(f"diretório '{input_path}' não existe")
             return res
 
         target_datasets = set(datasets or DATASETS)

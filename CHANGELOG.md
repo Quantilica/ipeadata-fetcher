@@ -10,6 +10,13 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 ### Alterado
 
 - Sem `DATA_DIR`, o diretório de dados deixa de ser `~/data` e passa a ser `$XDG_DATA_HOME/quantilica` (ou `~/.local/share/quantilica`). Quem define `DATA_DIR` não muda de caminho.
+  Conferido no código: com `DATA_DIR` definido e não vazio, o caminho é o mesmo de antes (`$DATA_DIR/ipeadata`, com `~` expandido); só `DATA_DIR` definido como string vazia passa a cair no padrão XDG (antes virava o diretório atual). Ainda vale `--output` sobre os dois.
+
+### Corrigido
+
+- `client`: resposta OData em formato inesperado (JSON que não é objeto, `value` ausente ou que não é lista) levanta `CorruptPayloadError`, em vez de virar lista vazia. Antes, uma mudança de formato da fonte zerava o catálogo em silêncio: o `sync` do grupo `all` listava 0 séries e saía 0. `{"value": []}` segue sendo resposta válida e vazia.
+- `catalog`: metadados vazios (0 séries) levantam `CorruptPayloadError` e não entram no cache do processo.
+- `lake`: diretório de entrada ausente passa a ser erro do `ConvertResult` (antes devolvia resultado vazio e o `convert` saía 0).
 
 ## [0.6.1] - 2026-11-19
 

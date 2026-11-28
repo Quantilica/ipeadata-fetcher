@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+from quantilica.core.exceptions import CorruptPayloadError
+
 from ipeadata_fetcher.client import IpeadataClient
 
 
@@ -64,3 +67,22 @@ def test_download_resource(tmp_path) -> None:
             assert res == target
             assert res.exists()
             mock_stream.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [[], "texto", None, {}, {"error": "x"}, {"value": None}, {"value": {"a": 1}}],
+)
+def test_formato_inesperado_levanta_e_nunca_devolve_lista_vazia(payload) -> None:
+    client = IpeadataClient()
+    with patch.object(client.client, "get_json", return_value=payload):
+        with pytest.raises(CorruptPayloadError):
+            client.get_metadados()
+        with pytest.raises(CorruptPayloadError):
+            client.get_valores_serie("PRECOS_IPCAG")
+
+
+def test_value_lista_vazia_e_resposta_valida() -> None:
+    client = IpeadataClient()
+    with patch.object(client.client, "get_json", return_value={"value": []}):
+        assert client.get_valores_serie("PRECOS_IPCAG") == []

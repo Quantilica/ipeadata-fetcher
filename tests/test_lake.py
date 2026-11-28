@@ -30,6 +30,13 @@ def test_converter_empty_dir(tmp_path: Path) -> None:
     assert not res.errors
 
 
+def test_converter_entrada_ausente_e_erro(tmp_path: Path) -> None:
+    res = converter.convert(tmp_path / "nao-existe", tmp_path / "lake")
+    assert res.converted == 0
+    assert len(res.errors) == 1
+    assert "não existe" in res.errors[0]
+
+
 def test_convert_ipeadata_end_to_end(tmp_path: Path) -> None:
     """Test conversion of dimensions and series values to Lake Hive."""
     raw_dir = tmp_path / "raw"

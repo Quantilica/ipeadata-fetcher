@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from quantilica.core.exceptions import CorruptPayloadError
 from quantilica.core.http import HostPolicy, HttpClient
 from quantilica.core.logging import get_logger
 from quantilica.core.manifests import DownloadManifest
@@ -62,13 +63,27 @@ class IpeadataClient:
         self.logger = logger or get_logger(__name__)
 
     def _get_odata_values(self, url: str) -> list[dict[str, Any]]:
-        """Fetch OData endpoint and unwrap 'value' array."""
+        """Fetch OData endpoint and unwrap 'value' array.
+
+        ``{"value": []}`` é resposta válida (lista vazia). Qualquer outra forma (JSON
+        que não é objeto, ``value`` ausente ou que não é lista) é formato inesperado
+        e levanta ``CorruptPayloadError``: nunca vira lista vazia, para o catálogo
+        não zerar em silêncio.
+        """
         data = self.client.get_json(url)
-        if isinstance(data, dict):
-            items = data.get("value", [])
-            if isinstance(items, list):
-                return items
-        return []
+        if not isinstance(data, dict):
+            raise CorruptPayloadError(
+                f"Resposta OData inesperada em {url}: esperado objeto JSON, "
+                f"veio {type(data).__name__}"
+            )
+        items = data.get("value")
+        if not isinstance(items, list):
+            raise CorruptPayloadError(
+                f"Resposta OData inesperada em {url}: campo 'value' "
+                f"{'ausente' if items is None else 'não é lista'} "
+                f"(chaves: {sorted(data)[:10]})"
+            )
+        return items
 
     def get_metadados(self) -> list[dict[str, Any]]:
         """Fetch all series metadata."""
